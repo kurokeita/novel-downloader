@@ -15,6 +15,7 @@ use truyenazz_crawler::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, SequentialParams, crawl_chapters_parallel,
     crawl_chapters_sequential,
 };
+use truyenazz_crawler::sites::validate_url;
 use truyenazz_crawler::ui::{
     CrawlMode, DownloadProgress, InteractivePlan, make_tui_progress_callback, run_download_screen,
     run_interactive_flow,
@@ -429,6 +430,13 @@ async fn run() -> i32 {
     if let Some(message) = validate_shared_options(&parsed.options) {
         eprintln!("{}", message);
         return 1;
+    }
+
+    if let Some(base_url) = parsed.base_url.as_deref()
+        && let Some(message) = validate_url(base_url, parsed.options.allow_any_host)
+    {
+        eprintln!("Error: {}", message);
+        return 2;
     }
 
     let interactive = parsed.options.interactive || parsed.base_url.is_none();
