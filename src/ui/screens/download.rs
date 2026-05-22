@@ -116,7 +116,7 @@ fn draw_download(
                         Style::default().fg(palette::MUTED),
                     ),
                 ])),
-                DownloadLogEntry::Fail(n) => ListItem::new(Line::from(vec![
+                DownloadLogEntry::Fail(n, message) => ListItem::new(Line::from(vec![
                     Span::styled(
                         " ✗ ",
                         Style::default()
@@ -124,7 +124,7 @@ fn draw_download(
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
-                        format!("Chapter {} failed", n),
+                        format!("Chapter {} failed: {}", n, message),
                         Style::default().fg(palette::DANGER),
                     ),
                 ])),

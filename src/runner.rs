@@ -8,16 +8,17 @@ use crate::crawler::{
 
 /// One observable progress event emitted by the runners. Consumers (CLI
 /// progress bar, TUI progress widget, log printer) receive a stream of these.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProgressEvent {
     /// A chapter download is about to start. `total` is the number of
     /// chapters in this run.
     Started { number: u32, total: u32 },
     /// A chapter completed successfully (written, skipped, or skip-all).
     Completed { number: u32, status: CrawlStatus },
-    /// A chapter failed. The runner records the error in the outcome's
-    /// `failures` list as well — this event is purely for live display.
-    Failed { number: u32 },
+    /// A chapter failed. `message` carries the error text the runner also
+    /// pushed onto the outcome's `failures` list — surfaced live so users
+    /// see *why* a chapter failed without waiting for the run to finish.
+    Failed { number: u32, message: String },
 }
 
 /// Type alias for a thread-safe progress callback.
@@ -124,11 +125,13 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
                 );
             }
             Err(error) => {
-                failures.push((chapter_number, error.to_string()));
+                let message = error.to_string();
+                failures.push((chapter_number, message.clone()));
                 emit(
                     &progress,
                     ProgressEvent::Failed {
                         number: chapter_number,
+                        message,
                     },
                 );
             }
@@ -244,14 +247,13 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                         );
                     }
                     Err(error) => {
-                        failures
-                            .lock()
-                            .await
-                            .push((chapter_number, error.to_string()));
+                        let message = error.to_string();
+                        failures.lock().await.push((chapter_number, message.clone()));
                         emit(
                             &progress,
                             ProgressEvent::Failed {
                                 number: chapter_number,
+                                message,
                             },
                         );
                     }

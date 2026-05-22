@@ -125,7 +125,7 @@ fn build_progress_bar(total: u64) -> ProgressBar {
 /// Format a single-line status update for one chapter event, used as the
 /// fallback when indicatif's bar is hidden (non-TTY) and as the message
 /// printed alongside the bar when it is visible.
-fn format_event(event: ProgressEvent) -> Option<String> {
+fn format_event(event: &ProgressEvent) -> Option<String> {
     match event {
         ProgressEvent::Started { .. } => None,
         ProgressEvent::Completed { number, status } => {
@@ -136,7 +136,9 @@ fn format_event(event: ProgressEvent) -> Option<String> {
             };
             Some(format!("[{label}] Chapter {}", number))
         }
-        ProgressEvent::Failed { number } => Some(format!("[FAIL] Chapter {}", number)),
+        ProgressEvent::Failed { number, message } => {
+            Some(format!("[FAIL] Chapter {}: {}", number, message))
+        }
     }
 }
 
@@ -146,10 +148,10 @@ fn format_event(event: ProgressEvent) -> Option<String> {
 /// is hidden (non-TTY) so progress is always visible.
 fn make_progress_callback(bar: ProgressBar) -> ProgressCallback {
     Arc::new(move |event| {
-        if let ProgressEvent::Started { number, .. } = event {
+        if let ProgressEvent::Started { number, .. } = &event {
             bar.set_message(format!("→ chapter {}", number));
         }
-        let line = format_event(event);
+        let line = format_event(&event);
         match event {
             ProgressEvent::Started { .. } => {}
             ProgressEvent::Completed { .. } | ProgressEvent::Failed { .. } => {

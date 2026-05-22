@@ -207,9 +207,12 @@ fn download_progress_records_started_and_completed() {
 fn download_progress_records_failures() {
     let mut progress = DownloadProgress::new(2);
     progress.record_started(1);
-    progress.record_failed(1);
+    progress.record_failed(1, "HTTP 503".to_string());
     assert_eq!(progress.failed, 1);
-    assert_eq!(progress.log.last(), Some(&DownloadLogEntry::Fail(1)));
+    assert_eq!(
+        progress.log.last(),
+        Some(&DownloadLogEntry::Fail(1, "HTTP 503".to_string()))
+    );
     // failed entries also count as "advanced" for percentage.
     assert_eq!(progress.advanced(), 1);
 }
