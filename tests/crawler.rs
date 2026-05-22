@@ -118,77 +118,142 @@ fn build_html_document_renders_chapter_title_as_h1() {
 }
 
 #[tokio::test]
-async fn discover_last_chapter_number_parses_latest_section() {
+async fn discover_last_chapter_number_follows_pagination_nexts() {
     let mut server = mockito::Server::new_async().await;
-    let html = r#"
-<html><body>
-  <h3>Mục Lục</h3>
-  <div><ul><li><a href="/foo/chuong-1/">c1</a></li></ul></div>
-  <div>
-    <h3>Chương Mới Nhất</h3>
-  </div>
-  <div>
-    <ul>
-      <li><a href="/foo/chuong-100/">c100</a></li>
-      <li><a href="/foo/chuong-101/">c101</a></li>
-      <li><a href="/foo/chuong-102/">c102</a></li>
-    </ul>
-  </div>
-</body></html>
-"#;
+    let main_url = format!("{}/foo/", server.url());
+    let last_page_url = format!("{}/foo?page=48", server.url());
+    let main_html = format!(
+        r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-1/">c1</a></li>
+    <li><a href="/foo/chuong-50/">c50</a></li>
+  </ul>
+  <div class="pagination"><ul>
+    <li class="active"><a href="javascript:void(0)">1</a></li>
+    <li><a href="{last_page_url}">48</a></li>
+    <li class="next"><a href="{}/foo?page=2"></a></li>
+    <li class="nexts"><a href="{last_page_url}"></a></li>
+  </ul></div>
+</body></html>"#,
+        server.url()
+    );
+    let last_html = r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-2351/">c2351</a></li>
+    <li><a href="/foo/chuong-2376/">c2376</a></li>
+  </ul>
+</body></html>"#;
+    let _m1 = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    let _m2 = server
+        .mock("GET", "/foo?page=48")
+        .with_body(last_html)
+        .create_async()
+        .await;
+    let last = discover_last_chapter_number(main_url.trim_end_matches('/'))
+        .await
+        .unwrap();
+    assert_eq!(last, 2376);
+}
+
+#[tokio::test]
+async fn discover_last_chapter_number_falls_back_to_main_when_no_pagination() {
+    let mut server = mockito::Server::new_async().await;
+    let html = r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-1/">c1</a></li>
+    <li><a href="/foo/chuong-7/">c7</a></li>
+    <li><a href="/foo/chuong-3/">c3</a></li>
+  </ul>
+</body></html>"#;
     let _mock = server
         .mock("GET", "/foo/")
-        .with_status(200)
         .with_body(html)
         .create_async()
         .await;
     let last = discover_last_chapter_number(&format!("{}/foo", server.url()))
         .await
         .unwrap();
-    assert_eq!(last, 102);
+    assert_eq!(last, 7);
 }
 
 #[tokio::test]
-async fn discover_last_chapter_number_errors_when_section_missing() {
+async fn discover_last_chapter_number_errors_when_no_chuong_links() {
     let mut server = mockito::Server::new_async().await;
     let _mock = server
         .mock("GET", "/foo/")
-        .with_status(200)
-        .with_body("<html></html>")
+        .with_body("<html><body><p>nothing here</p></body></html>")
         .create_async()
         .await;
     let err = discover_last_chapter_number(&format!("{}/foo", server.url()))
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("Chương Mới Nhất"));
+    assert!(err.to_string().contains("chapter"), "got: {err}");
 }
 
 #[test]
-fn discover_last_chapter_number_from_html_parses_pure_html() {
-    let html = r#"
-<html><body>
-  <h3>Mục Lục</h3>
-  <div><ul><li><a href="/foo/chuong-1/">c1</a></li></ul></div>
-  <div>
-    <h3>Chương Mới Nhất</h3>
-  </div>
-  <div>
-    <ul>
-      <li><a href="/foo/chuong-50/">c50</a></li>
-      <li><a href="/foo/chuong-51/">c51</a></li>
-    </ul>
-  </div>
-</body></html>
-"#;
+fn discover_last_chapter_number_from_html_returns_max_chuong() {
+    let html = r#"<html><body>
+  <a href="/foo/chuong-1/">c1</a>
+  <a href="/foo/chuong-9/">c9</a>
+  <a href="/foo/chuong-3/">c3</a>
+</body></html>"#;
     let n = discover_last_chapter_number_from_html(html, "https://truyenazz.me/foo/").unwrap();
-    assert_eq!(n, 51);
+    assert_eq!(n, 9);
 }
 
 #[test]
-fn discover_last_chapter_number_from_html_errors_on_missing_section() {
+fn discover_last_chapter_number_from_html_errors_when_no_chuong_links() {
     let err =
         discover_last_chapter_number_from_html("<html></html>", "https://x/foo/").unwrap_err();
-    assert!(err.to_string().contains("Chương Mới Nhất"));
+    assert!(err.to_string().to_lowercase().contains("chuong"));
+}
+
+#[test]
+fn find_last_page_url_resolves_relative_href_against_main_url() {
+    use truyenazz_crawler::crawler::find_last_page_url;
+    let html = r#"<html><body><div class="pagination"><ul>
+        <li class="nexts"><a href="?page=48"></a></li>
+    </ul></div></body></html>"#;
+    let u = find_last_page_url(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(u, "https://metruyenhotvn.com/foo/?page=48");
+}
+
+#[test]
+fn find_last_page_url_returns_none_for_single_page_chapter_list() {
+    use truyenazz_crawler::crawler::find_last_page_url;
+    let html = r#"<html><body><a href="/foo/chuong-1/">c1</a></body></html>"#;
+    assert!(find_last_page_url(html, "https://metruyenhotvn.com/foo/").is_none());
+}
+
+#[test]
+fn max_chapter_in_html_ignores_chuong_links_under_a_different_novel_slug() {
+    // A chuong link whose path does not start with the novel's own slug is
+    // rejected — that's a link to a different novel listed on the same page.
+    use truyenazz_crawler::crawler::max_chapter_in_html;
+    let html = r#"<html><body>
+        <a href="/different-novel/chuong-9999/">other novel</a>
+        <a href="/foo/chuong-42/">c42</a>
+    </body></html>"#;
+    let n = max_chapter_in_html(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(n, 42);
+}
+
+#[test]
+fn max_chapter_in_html_accepts_chuong_links_on_any_host_with_matching_slug() {
+    // metruyenhotvn.com's paginated pages legitimately render chuong hrefs
+    // on a sibling host (metruyenhotne.com) while keeping the novel slug
+    // intact. As long as the slug matches, accept any host.
+    use truyenazz_crawler::crawler::max_chapter_in_html;
+    let html = r#"<html><body>
+        <a href="https://metruyenhotne.com/foo/chuong-2351/">c2351</a>
+        <a href="https://metruyenhotne.com/foo/chuong-2376/">c2376</a>
+    </body></html>"#;
+    let n = max_chapter_in_html(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(n, 2376);
 }
 
 

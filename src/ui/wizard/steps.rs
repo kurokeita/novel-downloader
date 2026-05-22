@@ -147,12 +147,17 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
                     };
                 }
             };
+            let last_chapter = match crate::crawler::find_last_page_url(&html, &main_url) {
+                Some(last_page_url) => match crate::utils::fetch_html(&last_page_url).await {
+                    Ok(last_html) => crate::crawler::max_chapter_in_html(&last_html, &main_url)
+                        .or_else(|| crate::crawler::max_chapter_in_html(&html, &main_url)),
+                    Err(_) => crate::crawler::max_chapter_in_html(&html, &main_url),
+                },
+                None => crate::crawler::max_chapter_in_html(&html, &main_url),
+            };
             DiscoveredNovel {
                 title: Some(crate::epub::extract_novel_title_from_main_page(&html)),
-                last_chapter: crate::crawler::discover_last_chapter_number_from_html(
-                    &html, &main_url,
-                )
-                .ok(),
+                last_chapter,
                 status: crate::epub::extract_novel_status_from_main_page(&html),
                 description: crate::epub::extract_novel_description_from_main_page(&html),
             }
