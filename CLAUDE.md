@@ -45,8 +45,14 @@ A throwaway local mock is the easiest way to smoke-test end-to-end:
 # fixture site under /tmp/truyenazz-mock with /foo/index.html and /foo/chuong-N/index.html
 cd /tmp/truyenazz-mock && python3 -m http.server 8765 &
 cargo run --release -- http://localhost:8765/foo --start 1 --end 3 \
-    --if-exists overwrite --output-root /tmp/crawl-out --delay 0
+    --if-exists overwrite --output-root /tmp/crawl-out --delay 0 \
+    --allow-any-host
 ```
+
+`--allow-any-host` is the hidden escape hatch that bypasses the
+supported-host registry (`truyenazz.vn` / `truyenazz.me` /
+`metruyenhotvn.com`). Required for `localhost` mocks and integration tests;
+do not use for normal crawls.
 
 ## Architecture (the "big picture")
 

@@ -1,12 +1,22 @@
 # truyenazz-crawler
 
-Rust command-line crawler for truyenazz novels. It downloads chapter ranges as
-clean local HTML files and can package those saved chapters into an EPUB with
-metadata, cover image, and embedded font support.
+Rust command-line crawler for Vietnamese novel sites. It downloads chapter
+ranges as clean local HTML files and can package those saved chapters into an
+EPUB with metadata, cover image, and embedded font support.
+
+Supported hosts:
+
+- `truyenazz.vn`
+- `truyenazz.me`
+- `metruyenhotvn.com`
+
+URLs from any other host are rejected with a clear error before any network
+fetch. The hidden `--allow-any-host` flag bypasses the check for local mock
+fixtures and integration tests; it is not intended for normal use.
 
 ## Features
 
-- Crawl one chapter or a chapter range from a truyenazz novel URL.
+- Crawl one chapter or a chapter range from a supported novel URL.
 - Automatically discover the latest available chapter when `--end` is omitted.
 - Save chapters under a per-novel output directory as `chapter_NNNN.html`.
 - Build an EPUB from newly crawled chapters or from an existing chapter folder.
