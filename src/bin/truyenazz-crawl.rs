@@ -429,8 +429,7 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                     return 2;
                 }
                 FailureAction::Retry => {
-                    let retry_chapters: Vec<u32> =
-                        failures.iter().map(|(n, _)| *n).collect();
+                    let retry_chapters: Vec<u32> = failures.iter().map(|(n, _)| *n).collect();
                     let mut retry_plan = plan.clone();
                     retry_plan.if_exists = ExistingFilePolicy::Overwrite;
                     let outcome = if interactive {
@@ -446,12 +445,8 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                             Err(code) => return code,
                         }
                     } else {
-                        match run_with_indicatif(
-                            &retry_plan,
-                            retry_chapters,
-                            Arc::clone(&prompt),
-                        )
-                        .await
+                        match run_with_indicatif(&retry_plan, retry_chapters, Arc::clone(&prompt))
+                            .await
                         {
                             Ok(o) => o,
                             Err(code) => return code,

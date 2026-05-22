@@ -29,10 +29,7 @@ fn normalize_host_keeps_apex_host_unchanged() {
 #[test]
 fn normalize_host_errors_on_url_without_host() {
     let err = normalize_host("not-a-url").unwrap_err();
-    assert!(
-        err.to_string().to_lowercase().contains("url"),
-        "got: {err}"
-    );
+    assert!(err.to_string().to_lowercase().contains("url"), "got: {err}");
 }
 
 #[test]

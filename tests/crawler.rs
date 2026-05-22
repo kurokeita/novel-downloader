@@ -256,7 +256,6 @@ fn max_chapter_in_html_accepts_chuong_links_on_any_host_with_matching_slug() {
     assert_eq!(n, 2376);
 }
 
-
 /// Locks in that `extract_full_chapter_text` works on metruyenhotvn.com
 /// chapter HTML without any site-specific branching — the parser is already
 /// template-compatible across hosts.

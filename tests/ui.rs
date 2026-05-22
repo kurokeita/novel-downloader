@@ -465,7 +465,10 @@ fn expand_tilde_resolves_bare_tilde_to_home() {
 #[test]
 fn expand_tilde_resolves_tilde_slash_prefix() {
     unsafe { std::env::set_var("HOME", "/Users/tester") };
-    assert_eq!(expand_tilde("~/Downloads").as_ref(), "/Users/tester/Downloads");
+    assert_eq!(
+        expand_tilde("~/Downloads").as_ref(),
+        "/Users/tester/Downloads"
+    );
     assert_eq!(
         expand_tilde("~/a/b/c.txt").as_ref(),
         "/Users/tester/a/b/c.txt"

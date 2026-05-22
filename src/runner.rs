@@ -248,7 +248,10 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                     }
                     Err(error) => {
                         let message = error.to_string();
-                        failures.lock().await.push((chapter_number, message.clone()));
+                        failures
+                            .lock()
+                            .await
+                            .push((chapter_number, message.clone()));
                         emit(
                             &progress,
                             ProgressEvent::Failed {

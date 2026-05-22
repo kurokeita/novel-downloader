@@ -383,8 +383,8 @@ mod metruyenhot_regression {
 
     #[test]
     fn extract_novel_description_from_metruyenhot_main_page() {
-        let desc = extract_novel_description_from_main_page(&fixture())
-            .expect("description present");
+        let desc =
+            extract_novel_description_from_main_page(&fixture()).expect("description present");
         assert!(
             desc.contains("bạn gái")
                 || desc.contains("Dương Bách Xuyên")
@@ -395,12 +395,12 @@ mod metruyenhot_regression {
 
     #[test]
     fn extract_cover_image_url_from_metruyenhot_main_page() {
-        let url = extract_cover_image_url(
-            "https://metruyenhotvn.com/vo-dich-tien-nhan/",
-            &fixture(),
-        );
+        let url =
+            extract_cover_image_url("https://metruyenhotvn.com/vo-dich-tien-nhan/", &fixture());
         assert!(
-            url.as_deref().map(|u| u.starts_with("http")).unwrap_or(false),
+            url.as_deref()
+                .map(|u| u.starts_with("http"))
+                .unwrap_or(false),
             "cover url: {url:?}"
         );
     }
