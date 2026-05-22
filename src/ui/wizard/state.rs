@@ -59,6 +59,7 @@ pub(super) struct WizardState {
     pub(super) chapter_dir: Option<PathBuf>,
     pub(super) font_choice: FontChoice,
     pub(super) font_path: Option<PathBuf>,
+    pub(super) allow_any_host: bool,
 }
 
 impl WizardState {
@@ -94,6 +95,7 @@ impl WizardState {
                 FontChoice::Default
             },
             font_path: options.font_path.as_ref().map(PathBuf::from),
+            allow_any_host: options.allow_any_host,
         }
     }
 }

@@ -37,15 +37,15 @@ pub(super) fn step_base_url(state: &mut WizardState) -> Result<StepResult> {
     if state.has_initial_url {
         return Ok(StepResult::Next(WizardStep::Mode));
     }
-    let validator: Validator = Box::new(|value: &str| {
+    let allow_any_host = state.allow_any_host;
+    let validator: Validator = Box::new(move |value: &str| {
         let trimmed = value.trim();
-        let valid = !trimmed.is_empty()
-            && (trimmed.starts_with("http://") || trimmed.starts_with("https://"));
-        if valid {
-            None
-        } else {
-            Some("Enter a valid http:// or https:// URL.".to_string())
+        if trimmed.is_empty()
+            || !(trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        {
+            return Some("Enter a valid http:// or https:// URL.".to_string());
         }
+        crate::sites::validate_url(trimmed, allow_any_host)
     });
     let outcome = run_text_prompt(
         "Novel base URL",
