@@ -279,6 +279,62 @@ async fn run_with_tui(
     }
 }
 
+/// What the user picked when prompted about a partially-failed crawl
+/// before the EPUB build step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FailureAction {
+    /// Re-run only the failed chapter numbers and try the EPUB again.
+    Retry,
+    /// Skip the EPUB build entirely.
+    Abort,
+}
+
+/// Render the failed chapter numbers (sorted, deduplicated, comma-separated)
+/// for use in user-facing prompts.
+fn format_failure_chapter_list(failures: &[(u32, String)]) -> String {
+    let mut numbers: Vec<u32> = failures.iter().map(|(n, _)| *n).collect();
+    numbers.sort_unstable();
+    numbers.dedup();
+    numbers
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Ask the user whether to retry the failed chapters or skip the EPUB
+/// build. In interactive mode this is a TUI confirm screen; in
+/// non-interactive mode it reads a single character from stdin. When stdin
+/// is not a TTY (piped / EOF) the default is `Abort` so we never build a
+/// broken EPUB unattended.
+fn prompt_failure_action(interactive: bool, failures: &[(u32, String)]) -> FailureAction {
+    let list = format_failure_chapter_list(failures);
+    if interactive {
+        let message = format!(
+            "{} chapter(s) failed:\n{}\n\nRetry the failed chapters before building the EPUB?",
+            failures.len(),
+            list
+        );
+        match truyenazz_crawler::ui::run_confirm("Some chapters failed", &message, true) {
+            Ok(truyenazz_crawler::ui::PromptOutcome::Submitted(true)) => FailureAction::Retry,
+            _ => FailureAction::Abort,
+        }
+    } else {
+        use std::io::{Write, stdin, stdout};
+        eprintln!("\n[FAIL] {} chapter(s) failed: {}", failures.len(), list);
+        eprint!("Retry failed chapters before building EPUB? [r]etry / [a]bort: ");
+        let _ = stdout().flush();
+        let mut line = String::new();
+        match stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => FailureAction::Abort,
+            Ok(_) => match line.trim().to_lowercase().as_str() {
+                "r" | "retry" => FailureAction::Retry,
+                _ => FailureAction::Abort,
+            },
+        }
+    }
+}
+
 /// Execute a fully-resolved interactive plan: download chapters and/or build
 /// the EPUB. Returns the process exit code (0 = success, 2 = partial
 /// failures, 3 = EPUB build failed).
@@ -339,7 +395,7 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
         failures = outcome.failures;
     }
 
-    if !failures.is_empty() && !interactive {
+    if !failures.is_empty() && !interactive && !plan.epub {
         eprintln!("\nSome chapters failed:");
         for (chapter, message) in &failures {
             eprintln!("  - Chapter {}: {}", chapter, message);
@@ -347,6 +403,67 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
     }
 
     if plan.epub {
+        // Never build an EPUB with missing chapters. Loop: list the failures,
+        // ask the user whether to retry the failed chapter numbers or skip
+        // the EPUB entirely. Retry overwrites the existing chapter files
+        // (which may be partial or empty after the original failure).
+        while !failures.is_empty() {
+            match prompt_failure_action(interactive, &failures) {
+                FailureAction::Abort => {
+                    if interactive {
+                        let _ = truyenazz_crawler::ui::show_note(
+                            "EPUB skipped",
+                            &format!(
+                                "Skipped EPUB build because {} chapter(s) failed.",
+                                failures.len()
+                            ),
+                        );
+                    } else {
+                        eprintln!(
+                            "[INFO] Skipping EPUB build due to {} failed chapter(s).",
+                            failures.len()
+                        );
+                    }
+                    return 2;
+                }
+                FailureAction::Retry => {
+                    let retry_chapters: Vec<u32> =
+                        failures.iter().map(|(n, _)| *n).collect();
+                    let mut retry_plan = plan.clone();
+                    retry_plan.if_exists = ExistingFilePolicy::Overwrite;
+                    let outcome = if interactive {
+                        match run_with_tui(
+                            &retry_plan,
+                            retry_chapters,
+                            Arc::clone(&prompt),
+                            !plan.epub,
+                        )
+                        .await
+                        {
+                            Ok(o) => o,
+                            Err(code) => return code,
+                        }
+                    } else {
+                        match run_with_indicatif(
+                            &retry_plan,
+                            retry_chapters,
+                            Arc::clone(&prompt),
+                        )
+                        .await
+                        {
+                            Ok(o) => o,
+                            Err(code) => return code,
+                        }
+                    };
+                    if outcome.cancelled {
+                        eprintln!("[INFO] Retry cancelled by user.");
+                        return 1;
+                    }
+                    failures = outcome.failures;
+                }
+            }
+        }
+
         let chapter_dir = match output_dir.clone() {
             Some(d) => d,
             None => {
