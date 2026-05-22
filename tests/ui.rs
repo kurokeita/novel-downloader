@@ -3,8 +3,8 @@ use truyenazz_crawler::crawler::CrawlStatus;
 use truyenazz_crawler::crawler::ExistingFilePolicy;
 use truyenazz_crawler::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, longest_common_prefix,
-    path_completions, prompt_block_height,
+    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, expand_tilde,
+    longest_common_prefix, path_completions, prompt_block_height,
 };
 
 /// Build a `KeyEvent` with no modifiers — a tiny ergonomic helper for the
@@ -445,4 +445,36 @@ fn build_summary_marks_fast_skip_no_when_disabled() {
     });
     assert!(summary.contains("Fast skip: no"));
     assert!(summary.contains("Build EPUB: no"));
+}
+
+#[test]
+fn expand_tilde_leaves_values_without_leading_tilde_unchanged() {
+    assert_eq!(expand_tilde("/abs/path").as_ref(), "/abs/path");
+    assert_eq!(expand_tilde("relative").as_ref(), "relative");
+    assert_eq!(expand_tilde("").as_ref(), "");
+}
+
+#[test]
+fn expand_tilde_resolves_bare_tilde_to_home() {
+    // SAFETY: tests run sequentially within this binary; std::env::set_var is
+    // fine here because no other test relies on $HOME concurrently.
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(expand_tilde("~").as_ref(), "/Users/tester");
+}
+
+#[test]
+fn expand_tilde_resolves_tilde_slash_prefix() {
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(expand_tilde("~/Downloads").as_ref(), "/Users/tester/Downloads");
+    assert_eq!(
+        expand_tilde("~/a/b/c.txt").as_ref(),
+        "/Users/tester/a/b/c.txt"
+    );
+}
+
+#[test]
+fn expand_tilde_does_not_touch_tilde_user_form() {
+    // We only resolve the current user's $HOME, not ~someone-else.
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(expand_tilde("~bob/foo").as_ref(), "~bob/foo");
 }

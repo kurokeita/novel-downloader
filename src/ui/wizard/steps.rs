@@ -7,7 +7,7 @@ use crate::ui::plan::{CrawlMode, InteractivePlan, SummaryParams, build_summary};
 use crate::ui::screens::{
     run_confirm, run_loading_screen, run_path_prompt, run_select, run_text_prompt, show_note,
 };
-use crate::ui::widgets::{Select, SelectOption, Validator};
+use crate::ui::widgets::{Select, SelectOption, Validator, expand_tilde};
 
 use super::state::{FontChoice, StepResult, WizardState, WizardStep};
 
@@ -109,7 +109,7 @@ pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
         })),
     )?;
     advance_or_back!(outcome, WizardStep::Mode, |value| {
-        state.output_root = PathBuf::from(value.trim());
+        state.output_root = PathBuf::from(expand_tilde(value.trim()).as_ref());
         let next = if state.mode == CrawlMode::EpubOnly {
             WizardStep::ChapterDir
         } else {
@@ -344,7 +344,7 @@ pub(super) fn step_chapter_dir(state: &mut WizardState) -> Result<StepResult> {
         None,
     )?;
     advance_or_back!(outcome, WizardStep::OutputRoot, |value| {
-        state.chapter_dir = Some(PathBuf::from(value.trim()));
+        state.chapter_dir = Some(PathBuf::from(expand_tilde(value.trim()).as_ref()));
         Ok(StepResult::Next(WizardStep::FontChoice))
     })
 }
@@ -421,7 +421,7 @@ pub(super) fn step_font_path(state: &mut WizardState) -> Result<StepResult> {
         if trimmed.is_empty() {
             return Ok(StepResult::Next(WizardStep::FontChoice));
         }
-        state.font_path = Some(PathBuf::from(trimmed));
+        state.font_path = Some(PathBuf::from(expand_tilde(trimmed).as_ref()));
         Ok(StepResult::Next(WizardStep::Confirm))
     })
 }

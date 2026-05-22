@@ -24,7 +24,7 @@ pub use screens::{
 };
 pub use widgets::{
     DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select, SelectAction,
-    SelectOption, TextInput, TextInputAction, Validator, longest_common_prefix,
+    SelectOption, TextInput, TextInputAction, Validator, expand_tilde, longest_common_prefix,
     make_tui_progress_callback, path_completions,
 };
 pub use wizard::run_interactive_flow;

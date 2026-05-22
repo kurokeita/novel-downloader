@@ -1,4 +1,26 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use std::borrow::Cow;
+
+/// Expand a leading `~` to the user's home directory (`$HOME`). Supports
+/// `~` alone and `~/...`; `~user/...` is left untouched (only the current
+/// user's home is resolved). When `$HOME` is missing or non-UTF-8 the input
+/// is returned unchanged so the caller can still report a clean error.
+pub fn expand_tilde(value: &str) -> Cow<'_, str> {
+    if !value.starts_with('~') {
+        return Cow::Borrowed(value);
+    }
+    let home = match std::env::var_os("HOME").and_then(|h| h.into_string().ok()) {
+        Some(s) => s,
+        None => return Cow::Borrowed(value),
+    };
+    if value == "~" {
+        return Cow::Owned(home);
+    }
+    if let Some(rest) = value.strip_prefix("~/") {
+        return Cow::Owned(format!("{}/{}", home.trim_end_matches('/'), rest));
+    }
+    Cow::Borrowed(value)
+}
 
 /// Return the longest byte-prefix shared by every input string, backing off
 /// to the nearest UTF-8 boundary so the result is always valid UTF-8.
@@ -41,6 +63,8 @@ pub fn path_completions(value: &str) -> Vec<String> {
     if value.is_empty() {
         return Vec::new();
     }
+    let expanded = expand_tilde(value);
+    let value = expanded.as_ref();
     let path = std::path::Path::new(value);
     let (dir, prefix): (std::path::PathBuf, String) = if value.ends_with('/') {
         (path.to_path_buf(), String::new())
