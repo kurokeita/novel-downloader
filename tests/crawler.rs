@@ -190,3 +190,43 @@ fn discover_last_chapter_number_from_html_errors_on_missing_section() {
         discover_last_chapter_number_from_html("<html></html>", "https://x/foo/").unwrap_err();
     assert!(err.to_string().contains("Chương Mới Nhất"));
 }
+
+
+/// Locks in that `extract_full_chapter_text` works on metruyenhotvn.com
+/// chapter HTML without any site-specific branching — the parser is already
+/// template-compatible across hosts.
+#[test]
+fn extract_full_chapter_text_handles_metruyenhot_chapter_fixture() {
+    use truyenazz_crawler::crawler::extract_full_chapter_text;
+    let html = std::fs::read_to_string("tests/fixtures/metruyenhot_chapter.html").unwrap();
+    let content = extract_full_chapter_text(&html).expect("parser should accept metruyenhot");
+    assert!(
+        content.novel_title.contains("Vô Địch Tiên Nhân"),
+        "novel title: {}",
+        content.novel_title
+    );
+    assert!(
+        content.chapter_title.contains("Chương 1"),
+        "chapter title: {}",
+        content.chapter_title
+    );
+    assert!(
+        content.paragraphs.len() >= 5,
+        "expected at least 5 paragraphs, got {}",
+        content.paragraphs.len()
+    );
+}
+
+/// Locks in that the existing `Chương Mới Nhất` sibling walk works on
+/// metruyenhotvn.com novel HTML.
+#[test]
+fn discover_last_chapter_number_handles_metruyenhot_novel_fixture() {
+    use truyenazz_crawler::crawler::discover_last_chapter_number_from_html;
+    let html = std::fs::read_to_string("tests/fixtures/metruyenhot_novel.html").unwrap();
+    let n = discover_last_chapter_number_from_html(
+        &html,
+        "https://metruyenhotvn.com/vo-dich-tien-nhan/",
+    )
+    .expect("discovery should accept metruyenhot");
+    assert!(n >= 100, "expected a sizeable chapter count, got {n}");
+}

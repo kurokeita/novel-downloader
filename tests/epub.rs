@@ -336,3 +336,72 @@ fn extract_novel_description_returns_none_when_missing() {
     let only_one_sibling = r#"<html><body><div class="content1"><div class="info"></div><p>only one</p></div></body></html>"#;
     assert!(extract_novel_description_from_main_page(only_one_sibling).is_none());
 }
+
+#[test]
+fn extract_novel_description_skips_empty_paragraph_between_marker_and_body() {
+    // metruyenhotvn.com renders an empty <p> between the "Thông tin chi tiết:"
+    // marker and the actual description body; the extractor must skip past
+    // empty siblings rather than returning the empty one as the description.
+    let html = "<html><body><div class=\"content1\"><div class=\"info\"></div>\
+        <p>Thông tin chi tiết:</p>\
+        <p></p>\
+        <p>real description</p></div></body></html>";
+    assert_eq!(
+        extract_novel_description_from_main_page(html).as_deref(),
+        Some("real description")
+    );
+}
+
+/// Locks in that the existing main-page selectors work on
+/// metruyenhotvn.com without changes — the unquoted-attribute
+/// difference is invisible to a real DOM parser.
+mod metruyenhot_regression {
+    use super::*;
+
+    /// Load the saved metruyenhot novel main-page fixture from disk.
+    fn fixture() -> String {
+        std::fs::read_to_string("tests/fixtures/metruyenhot_novel.html").unwrap()
+    }
+
+    #[test]
+    fn extract_novel_title_from_metruyenhot_main_page() {
+        let title = extract_novel_title_from_main_page(&fixture());
+        assert!(title.contains("Vô Địch Tiên Nhân"), "title was: {title}");
+    }
+
+    #[test]
+    fn extract_author_from_metruyenhot_main_page() {
+        let author = extract_author_from_main_page(&fixture()).expect("author present");
+        assert_eq!(author, "Tần Cấn");
+    }
+
+    #[test]
+    fn extract_novel_status_from_metruyenhot_main_page() {
+        let status = extract_novel_status_from_main_page(&fixture()).expect("status present");
+        assert_eq!(status, "Đang ra");
+    }
+
+    #[test]
+    fn extract_novel_description_from_metruyenhot_main_page() {
+        let desc = extract_novel_description_from_main_page(&fixture())
+            .expect("description present");
+        assert!(
+            desc.contains("bạn gái")
+                || desc.contains("Dương Bách Xuyên")
+                || desc.contains("công viên"),
+            "description was: {desc}"
+        );
+    }
+
+    #[test]
+    fn extract_cover_image_url_from_metruyenhot_main_page() {
+        let url = extract_cover_image_url(
+            "https://metruyenhotvn.com/vo-dich-tien-nhan/",
+            &fixture(),
+        );
+        assert!(
+            url.as_deref().map(|u| u.starts_with("http")).unwrap_or(false),
+            "cover url: {url:?}"
+        );
+    }
+}
