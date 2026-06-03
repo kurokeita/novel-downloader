@@ -1,12 +1,48 @@
 use std::io::{Cursor, Read};
 use truyenazz_crawler::epub::{
     BuildEpubParams, ChapterEntry, ContentOpfParams, build_epub, chapter_xhtml, content_opf,
-    extract_author_from_main_page, extract_cover_image_url,
+    epub_file_stem, extract_author_from_main_page, extract_cover_image_url,
     extract_novel_description_from_main_page, extract_novel_status_from_main_page,
     extract_novel_title_from_main_page, extract_title_and_body_from_saved_chapter,
     list_chapter_files, nav_xhtml, ncx_xml, pick_cover_extension, title_page_xhtml,
 };
 use zip::ZipArchive;
+
+#[test]
+fn epub_file_stem_combines_title_and_author_preserving_unicode() {
+    assert_eq!(
+        epub_file_stem(
+            "Người Chồng Vô Dụng Của Nữ Thần - Lâm Chính (Bản Chuẩn - Mới)",
+            Some("Bạch Long")
+        ),
+        "Người Chồng Vô Dụng Của Nữ Thần - Lâm Chính (Bản Chuẩn - Mới) - Bạch Long"
+    );
+}
+
+#[test]
+fn epub_file_stem_uses_title_only_when_author_missing_or_blank() {
+    assert_eq!(
+        epub_file_stem("Người Chồng Vô Dụng", None),
+        "Người Chồng Vô Dụng"
+    );
+    assert_eq!(
+        epub_file_stem("Người Chồng Vô Dụng", Some("   ")),
+        "Người Chồng Vô Dụng"
+    );
+}
+
+#[test]
+fn epub_file_stem_replaces_illegal_path_characters() {
+    // Path separators and Windows-reserved characters become spaces, then
+    // runs of whitespace collapse to single spaces.
+    assert_eq!(epub_file_stem("A/B: C?", Some("D|E")), "A B C - D E");
+}
+
+#[test]
+fn epub_file_stem_falls_back_to_book_when_empty() {
+    assert_eq!(epub_file_stem("", None), "book");
+    assert_eq!(epub_file_stem("///", None), "book");
+}
 
 #[test]
 fn extract_novel_title_prefers_h1_over_title_tag() {

@@ -5,7 +5,7 @@ use zip::CompressionMethod;
 use zip::write::SimpleFileOptions;
 
 use crate::font::{FontMetadata, extract_font_metadata};
-use crate::utils::{download_binary, fetch_html, file_exists, find_font_file, slugify};
+use crate::utils::{download_binary, fetch_html, file_exists, find_font_file};
 
 use super::chapters::{extract_title_and_body_from_saved_chapter, list_chapter_files};
 use super::metadata::{
@@ -41,6 +41,33 @@ p {{\n  margin: 0 0 0.9em 0;\n  text-indent: 2em;\n  text-align: justify;\n}}",
     )
 }
 
+/// Build the default EPUB file stem (no extension) from the novel title and
+/// optional author, as the human-readable `<title> - <author>`. The original
+/// Vietnamese text (diacritics, spaces, parentheses, dashes) is preserved;
+/// only characters that are illegal in file names on common platforms are
+/// replaced with a space and collapsed. Falls back to the title alone when
+/// the author is missing or blank, and to `book` when nothing usable remains.
+pub fn epub_file_stem(title: &str, author: Option<&str>) -> String {
+    let combined = match author {
+        Some(a) if !a.trim().is_empty() => format!("{} - {}", title.trim(), a.trim()),
+        _ => title.trim().to_string(),
+    };
+    let sanitized: String = combined
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => ' ',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect();
+    let collapsed = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        "book".to_string()
+    } else {
+        collapsed
+    }
+}
+
 /// Assemble the EPUB archive at `output_epub` from previously-saved chapter
 /// HTML files in `chapter_dir`. Fetches the novel main page for metadata +
 /// cover, embeds the font when available, and returns the final output path.
@@ -72,10 +99,12 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
         cover_ext = pick_cover_extension(url, &cover_media_type);
     }
 
-    let output_epub = params
-        .output_epub
-        .clone()
-        .unwrap_or_else(|| chapter_dir.join(format!("{}.epub", slugify(&novel_title, "book"))));
+    let output_epub = params.output_epub.clone().unwrap_or_else(|| {
+        chapter_dir.join(format!(
+            "{}.epub",
+            epub_file_stem(&novel_title, author.as_deref())
+        ))
+    });
 
     let font_path = find_font_file(params.font_path.as_deref()).await?;
     let font_bytes = match &font_path {
