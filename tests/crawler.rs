@@ -55,6 +55,25 @@ fn extract_full_chapter_text_falls_back_to_default_titles() {
 }
 
 #[test]
+fn extract_full_chapter_text_filters_mshow_hb_hidden_noise() {
+    // metruyenhot injects a hidden <p class="mshow-hb"> promo line into some
+    // chapters; it must never reach the saved content.
+    let html = r#"
+<div class="chapter-c">
+  <p>Đoạn thật một.</p>
+  <p class="mshow-hb">Lên google tìm kiếm từ khóa metruyenH0t để đọc...</p>
+  <p>Đoạn thật hai.</p>
+  <div><p class="mshow-hb">Quảng cáo lồng trong div.</p><p>Đoạn thật ba.</p></div>
+</div>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Đoạn thật một.", "Đoạn thật hai.", "Đoạn thật ba."]
+    );
+}
+
+#[test]
 fn extract_full_chapter_text_dedupes_consecutive_lines() {
     let html = r#"
 <div class="chapter-c">

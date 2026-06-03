@@ -47,6 +47,24 @@ fn element_text(elem: &ElementRef<'_>) -> String {
     clean_text(&combined)
 }
 
+/// CSS classes marking elements that are hidden promo/noise injected into the
+/// chapter body (e.g. metruyenhot's `mshow-hb` "search us on Google" line).
+/// Any element carrying one of these classes is dropped wholesale.
+const HIDDEN_NOISE_CLASSES: &[&str] = &["mshow-hb"];
+
+/// True when `elem`'s `class` attribute contains any [`HIDDEN_NOISE_CLASSES`]
+/// token, marking it as injected noise to skip.
+fn is_hidden_noise_element(elem: &ElementRef<'_>) -> bool {
+    elem.value()
+        .attr("class")
+        .map(|class| {
+            class
+                .split_whitespace()
+                .any(|token| HIDDEN_NOISE_CLASSES.contains(&token))
+        })
+        .unwrap_or(false)
+}
+
 /// Try to derive a non-empty text representation for `elem`. Falls back to
 /// the first attribute value (excluding presentation/scripting attributes)
 /// when the inner text is empty, mirroring the TS extractor.
@@ -86,6 +104,9 @@ fn extract_injected_content_from_script(full_html: &str) -> Vec<String> {
     let p_sel = Selector::parse("p").unwrap();
     let mut out = Vec::new();
     for p in doc.select(&p_sel) {
+        if is_hidden_noise_element(&p) {
+            continue;
+        }
         if let Some(text) = extract_text_from_element(&p)
             && !is_noise(&text)
         {
@@ -166,6 +187,9 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
             }
             continue;
         }
+        if is_hidden_noise_element(&elem) {
+            continue;
+        }
         if tag == "p" || tag == "span" {
             if let Some(text) = extract_text_from_element(&elem)
                 && !is_noise(&text)
@@ -175,6 +199,9 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
             continue;
         }
         for descendant in elem.select(&p_sel) {
+            if is_hidden_noise_element(&descendant) {
+                continue;
+            }
             if let Some(text) = extract_text_from_element(&descendant)
                 && !is_noise(&text)
             {
