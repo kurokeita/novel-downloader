@@ -51,7 +51,7 @@ pub(super) fn step_base_url(state: &mut WizardState) -> Result<StepResult> {
         "Novel base URL",
         "Paste the novel base URL.",
         Some(state.base_url.clone()).filter(|s| !s.is_empty()),
-        Some("https://truyenazz.me/your-novel"),
+        Some("https://metruyenhotvn.com/your-novel"),
         Some(validator),
     )?;
     advance_or_back!(outcome, WizardStep::Welcome, |value| {

@@ -4,17 +4,14 @@ use truyenazz_crawler::sites::{
 
 #[test]
 fn supported_hosts_listed_alphabetically_for_stable_error_messages() {
-    assert_eq!(
-        SUPPORTED_HOSTS,
-        &["metruyenhotvn.com", "truyenazz.me", "truyenazz.vn"]
-    );
+    assert_eq!(SUPPORTED_HOSTS, &["metruyenhotne.com", "metruyenhotvn.com"]);
 }
 
 #[test]
 fn normalize_host_lowercases_and_strips_www() {
     assert_eq!(
-        normalize_host("https://WWW.Truyenazz.ME/foo").unwrap(),
-        "truyenazz.me"
+        normalize_host("https://WWW.MetruyenhotVN.com/foo").unwrap(),
+        "metruyenhotvn.com"
     );
 }
 
@@ -44,8 +41,8 @@ fn ensure_supported_accepts_each_listed_host() {
 
 #[test]
 fn ensure_supported_accepts_www_prefixed_host() {
-    let host = ensure_supported("https://www.truyenazz.vn/foo").unwrap();
-    assert_eq!(host, "truyenazz.vn");
+    let host = ensure_supported("https://www.metruyenhotne.com/foo").unwrap();
+    assert_eq!(host, "metruyenhotne.com");
 }
 
 #[test]
@@ -78,14 +75,14 @@ fn ensure_supported_or_local_still_rejects_unrelated_host() {
 
 #[test]
 fn validate_url_returns_none_on_supported_host() {
-    assert!(validate_url("https://truyenazz.me/foo", false).is_none());
+    assert!(validate_url("https://metruyenhotvn.com/foo", false).is_none());
 }
 
 #[test]
 fn validate_url_returns_error_message_on_unknown_host() {
     let msg = validate_url("https://example.com/foo", false).unwrap();
     assert!(msg.contains("example.com"));
-    assert!(msg.contains("truyenazz.me"));
+    assert!(msg.contains("metruyenhotvn.com"));
 }
 
 #[test]

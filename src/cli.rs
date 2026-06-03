@@ -37,7 +37,7 @@ impl From<CliExistingPolicy> for ExistingFilePolicy {
     version
 )]
 pub struct RawArgs {
-    /// Novel base URL. Supported hosts: truyenazz.vn, truyenazz.me, metruyenhotvn.com.
+    /// Novel base URL. Supported hosts: metruyenhotne.com, metruyenhotvn.com.
     pub base_url: Option<String>,
 
     /// Start chapter number (inclusive).

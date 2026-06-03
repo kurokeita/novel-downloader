@@ -1,17 +1,17 @@
 //! Supported-host registry and URL validation for the crawler.
 //!
-//! All three target sites (`truyenazz.vn`, `truyenazz.me`, `metruyenhotvn.com`)
-//! share the same backend template, so this module is the single point of
-//! truth that decides whether a URL is accepted. Profiling for the design
-//! spec confirmed the rest of the parser/metadata/discovery code is
-//! site-agnostic and needs no per-host branching.
+//! Both target sites (`metruyenhotne.com`, `metruyenhotvn.com`) share the same
+//! backend template, so this module is the single point of truth that decides
+//! whether a URL is accepted. Profiling for the design spec confirmed the rest
+//! of the parser/metadata/discovery code is site-agnostic and needs no
+//! per-host branching.
 
 use anyhow::{Context, Result, anyhow};
 use url::Url;
 
 /// Hosts the crawler is willing to accept, listed alphabetically so error
 /// messages render in a stable order across runs.
-pub const SUPPORTED_HOSTS: &[&str] = &["metruyenhotvn.com", "truyenazz.me", "truyenazz.vn"];
+pub const SUPPORTED_HOSTS: &[&str] = &["metruyenhotne.com", "metruyenhotvn.com"];
 
 /// Parse `url`, return its host lower-cased and with any leading `www.`
 /// stripped. Returns an error if the URL cannot be parsed or has no host

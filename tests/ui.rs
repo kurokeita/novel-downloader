@@ -386,7 +386,7 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
     let output_root = std::path::PathBuf::from("/tmp/out");
     let font_path = std::path::PathBuf::from("/tmp/MyFont.ttf");
     let summary = build_summary(SummaryParams {
-        base_url: "https://truyenazz.me/foo",
+        base_url: "https://metruyenhotvn.com/foo",
         mode: CrawlMode::CrawlEpub,
         output_root: output_root.as_path(),
         chapter_numbers: Some(chapters.as_slice()),
@@ -397,7 +397,7 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
         font_path: Some(font_path.as_path()),
         fast_skip: true,
     });
-    assert!(summary.contains("Base URL: https://truyenazz.me/foo"));
+    assert!(summary.contains("Base URL: https://metruyenhotvn.com/foo"));
     assert!(summary.contains("Mode: Crawl chapters and build EPUB"));
     assert!(summary.contains("Output root: /tmp/out"));
     assert!(summary.contains("Chapters: 1 -> 50 (50 total)"));

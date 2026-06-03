@@ -96,7 +96,7 @@ pub fn slugify(text: &str, fallback: &str) -> String {
 }
 
 /// Build the canonical chapter URL for a novel base URL and chapter number,
-/// e.g. `https://truyenazz.me/foo` + `7` -> `https://truyenazz.me/foo/chuong-7/`.
+/// e.g. `https://metruyenhotvn.com/foo` + `7` -> `https://metruyenhotvn.com/foo/chuong-7/`.
 /// Trailing slashes on the base URL are stripped before joining.
 pub fn build_chapter_url(base_url: &str, chapter_number: u32) -> String {
     let trimmed = base_url.trim_end_matches('/');

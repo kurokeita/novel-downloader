@@ -43,15 +43,15 @@ fn extract_author_strips_after_genre_marker() {
 #[test]
 fn extract_cover_image_url_finds_lazy_loaded_img() {
     let html = "<html><body><div class=\"book-img\"><img class=\"lazyloaded\" src=\"/cover.jpg\"></div></body></html>";
-    let url = extract_cover_image_url("https://truyenazz.me/foo/", html).unwrap();
-    assert_eq!(url, "https://truyenazz.me/cover.jpg");
+    let url = extract_cover_image_url("https://metruyenhotvn.com/foo/", html).unwrap();
+    assert_eq!(url, "https://metruyenhotvn.com/cover.jpg");
 }
 
 #[test]
 fn extract_cover_image_url_skips_data_uris() {
     let html = "<html><body><img src=\"data:image/png;base64,aaa\"><img class=\"lazyloaded\" src=\"/cover.jpg\"></body></html>";
-    let url = extract_cover_image_url("https://truyenazz.me/foo/", html).unwrap();
-    assert_eq!(url, "https://truyenazz.me/cover.jpg");
+    let url = extract_cover_image_url("https://metruyenhotvn.com/foo/", html).unwrap();
+    assert_eq!(url, "https://metruyenhotvn.com/cover.jpg");
 }
 
 #[test]

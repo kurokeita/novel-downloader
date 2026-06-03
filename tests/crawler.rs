@@ -220,7 +220,7 @@ fn discover_last_chapter_number_from_html_returns_max_chuong() {
   <a href="/foo/chuong-9/">c9</a>
   <a href="/foo/chuong-3/">c3</a>
 </body></html>"#;
-    let n = discover_last_chapter_number_from_html(html, "https://truyenazz.me/foo/").unwrap();
+    let n = discover_last_chapter_number_from_html(html, "https://metruyenhotvn.com/foo/").unwrap();
     assert_eq!(n, 9);
 }
 

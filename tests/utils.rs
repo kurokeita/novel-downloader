@@ -34,7 +34,7 @@ fn is_noise_returns_true_for_empty() {
 
 #[test]
 fn is_noise_matches_known_prefixes() {
-    assert!(is_noise("Bạn đang đọc truyện mới tại truyenazz.me"));
+    assert!(is_noise("Bạn đang đọc truyện mới tại metruyenhotvn.com"));
     assert!(is_noise("Nhấn Mở Bình Luận để bình luận"));
     assert!(is_noise("Tham gia group Facebook ngay"));
 }
@@ -85,20 +85,20 @@ fn slugify_preserves_dashes_as_underscore() {
 #[test]
 fn build_chapter_url_appends_chapter_segment() {
     assert_eq!(
-        build_chapter_url("https://truyenazz.me/foo", 7),
-        "https://truyenazz.me/foo/chuong-7/"
+        build_chapter_url("https://metruyenhotvn.com/foo", 7),
+        "https://metruyenhotvn.com/foo/chuong-7/"
     );
 }
 
 #[test]
 fn build_chapter_url_strips_trailing_slashes() {
     assert_eq!(
-        build_chapter_url("https://truyenazz.me/foo/", 1),
-        "https://truyenazz.me/foo/chuong-1/"
+        build_chapter_url("https://metruyenhotvn.com/foo/", 1),
+        "https://metruyenhotvn.com/foo/chuong-1/"
     );
     assert_eq!(
-        build_chapter_url("https://truyenazz.me/foo///", 42),
-        "https://truyenazz.me/foo/chuong-42/"
+        build_chapter_url("https://metruyenhotvn.com/foo///", 42),
+        "https://metruyenhotvn.com/foo/chuong-42/"
     );
 }
 
