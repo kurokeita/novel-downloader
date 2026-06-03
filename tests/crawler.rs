@@ -55,21 +55,48 @@ fn extract_full_chapter_text_falls_back_to_default_titles() {
 }
 
 #[test]
-fn extract_full_chapter_text_filters_mshow_hb_hidden_noise() {
-    // metruyenhot injects a hidden <p class="mshow-hb"> promo line into some
-    // chapters; it must never reach the saved content.
+fn extract_full_chapter_text_filters_css_hidden_noise_paragraphs() {
+    // metruyenhot hides injected promo lines with a per-page rotating class
+    // (mshow-hb, mshow-bs, ms-b, ...) whose only commonality is a
+    // `display: none` rule in a <style> block. Drop any element carrying a
+    // class the page hides, regardless of the class name.
     let html = r#"
+<html><head><style>
+  .mshow-hb { display: none; }
+  .rotating-xyz { color: red; display:none }
+</style></head><body>
 <div class="chapter-c">
   <p>Đoạn thật một.</p>
   <p class="mshow-hb">Lên google tìm kiếm từ khóa metruyenH0t để đọc...</p>
+  <p class="rotating-xyz">Bạn đang đọc truyện mới tại đâu đó.</p>
   <p>Đoạn thật hai.</p>
-  <div><p class="mshow-hb">Quảng cáo lồng trong div.</p><p>Đoạn thật ba.</p></div>
+  <div><p class="rotating-xyz">Quảng cáo lồng trong div.</p><p>Đoạn thật ba.</p></div>
 </div>
+</body></html>
 "#;
     let chapter = extract_full_chapter_text(html).unwrap();
     assert_eq!(
         chapter.paragraphs,
         vec!["Đoạn thật một.", "Đoạn thật hai.", "Đoạn thật ba."]
+    );
+}
+
+#[test]
+fn extract_full_chapter_text_keeps_paragraphs_whose_class_is_not_hidden() {
+    // A class that exists in a <style> block but is NOT display:none must not
+    // be filtered — only display:none classes are noise markers.
+    let html = r#"
+<html><head><style>.fancy { color: navy; }</style></head><body>
+<div class="chapter-c">
+  <p class="fancy">Đoạn được tô màu nhưng vẫn hiển thị.</p>
+  <p>Đoạn thường.</p>
+</div>
+</body></html>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Đoạn được tô màu nhưng vẫn hiển thị.", "Đoạn thường."]
     );
 }
 

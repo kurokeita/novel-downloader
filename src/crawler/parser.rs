@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, anyhow};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -47,21 +49,49 @@ fn element_text(elem: &ElementRef<'_>) -> String {
     clean_text(&combined)
 }
 
-/// CSS classes marking elements that are hidden promo/noise injected into the
-/// chapter body (e.g. metruyenhot's `mshow-hb` "search us on Google" line).
-/// Any element carrying one of these classes is dropped wholesale.
-const HIDDEN_NOISE_CLASSES: &[&str] = &["mshow-hb"];
+/// Matches one CSS rule: a selector list, then a `{ ... }` declaration block.
+/// Used to find rules that hide elements via `display: none`.
+static CSS_RULE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)([^{}]+)\{([^}]*)\}").unwrap());
 
-/// True when `elem`'s `class` attribute contains any [`HIDDEN_NOISE_CLASSES`]
-/// token, marking it as injected noise to skip.
-fn is_hidden_noise_element(elem: &ElementRef<'_>) -> bool {
+/// Matches a `.class-name` token inside a CSS selector.
+static CSS_CLASS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.([A-Za-z0-9_-]+)").unwrap());
+
+/// Matches a `display: none` declaration (whitespace-tolerant).
+static DISPLAY_NONE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)display\s*:\s*none").unwrap());
+
+/// Scan every `<style>` block in `doc` and collect the set of class names that
+/// are hidden via a `display: none` rule. metruyenhot hides its injected
+/// promo/noise paragraphs this way under a per-page rotating class name
+/// (`mshow-hb`, `mshow-bs`, `ms-b`, ...), so detecting the hidden classes
+/// dynamically is more robust than hard-coding the rotating names.
+fn hidden_class_names(doc: &Html) -> HashSet<String> {
+    let style_sel = Selector::parse("style").unwrap();
+    let mut hidden = HashSet::new();
+    for style in doc.select(&style_sel) {
+        let css: String = style.text().collect();
+        for rule in CSS_RULE_RE.captures_iter(&css) {
+            let selectors = &rule[1];
+            let declarations = &rule[2];
+            if !DISPLAY_NONE_RE.is_match(declarations) {
+                continue;
+            }
+            for class in CSS_CLASS_RE.captures_iter(selectors) {
+                hidden.insert(class[1].to_string());
+            }
+        }
+    }
+    hidden
+}
+
+/// True when `elem` carries a class listed in `hidden`, marking it as a
+/// CSS-hidden noise element to skip.
+fn is_hidden_noise_element(elem: &ElementRef<'_>, hidden: &HashSet<String>) -> bool {
+    if hidden.is_empty() {
+        return false;
+    }
     elem.value()
         .attr("class")
-        .map(|class| {
-            class
-                .split_whitespace()
-                .any(|token| HIDDEN_NOISE_CLASSES.contains(&token))
-        })
+        .map(|class| class.split_whitespace().any(|token| hidden.contains(token)))
         .unwrap_or(false)
 }
 
@@ -92,7 +122,7 @@ fn extract_text_from_element(elem: &ElementRef<'_>) -> Option<String> {
 /// Pull the obfuscated injected paragraphs out of the page's inline JS, parse
 /// them as HTML, and return cleaned non-noise paragraph texts. Returns an
 /// empty vector if no `contentS` block is found.
-fn extract_injected_content_from_script(full_html: &str) -> Vec<String> {
+fn extract_injected_content_from_script(full_html: &str, hidden: &HashSet<String>) -> Vec<String> {
     let captures = match CONTENT_S_RE.captures(full_html) {
         Some(c) => c,
         None => return Vec::new(),
@@ -104,7 +134,7 @@ fn extract_injected_content_from_script(full_html: &str) -> Vec<String> {
     let p_sel = Selector::parse("p").unwrap();
     let mut out = Vec::new();
     for p in doc.select(&p_sel) {
-        if is_hidden_noise_element(&p) {
+        if is_hidden_noise_element(&p, hidden) {
             continue;
         }
         if let Some(text) = extract_text_from_element(&p)
@@ -168,7 +198,8 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
 
     let novel_title = extract_novel_title(&doc);
     let chapter_title = extract_chapter_title(&doc);
-    let injected = extract_injected_content_from_script(full_html);
+    let hidden = hidden_class_names(&doc);
+    let injected = extract_injected_content_from_script(full_html, &hidden);
 
     let p_sel = Selector::parse("p").unwrap();
     let mut lines: Vec<String> = Vec::new();
@@ -187,7 +218,7 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
             }
             continue;
         }
-        if is_hidden_noise_element(&elem) {
+        if is_hidden_noise_element(&elem, &hidden) {
             continue;
         }
         if tag == "p" || tag == "span" {
@@ -199,7 +230,7 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
             continue;
         }
         for descendant in elem.select(&p_sel) {
-            if is_hidden_noise_element(&descendant) {
+            if is_hidden_noise_element(&descendant, &hidden) {
                 continue;
             }
             if let Some(text) = extract_text_from_element(&descendant)
