@@ -396,8 +396,12 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
         chapter_dir: None,
         font_path: Some(font_path.as_path()),
         fast_skip: true,
+        novel_title: Some("Tên Truyện"),
+        novel_author: Some("Tác Giả"),
     });
     assert!(summary.contains("Base URL: https://metruyenhotvn.com/foo"));
+    assert!(summary.contains("Title: Tên Truyện"));
+    assert!(summary.contains("Author: Tác Giả"));
     assert!(summary.contains("Mode: Crawl chapters and build EPUB"));
     assert!(summary.contains("Output root: /tmp/out"));
     assert!(summary.contains("Chapters: 1 -> 50 (50 total)"));
@@ -442,6 +446,8 @@ fn build_summary_marks_fast_skip_no_when_disabled() {
         chapter_dir: None,
         font_path: None,
         fast_skip: false,
+        novel_title: None,
+        novel_author: None,
     });
     assert!(summary.contains("Fast skip: no"));
     assert!(summary.contains("Build EPUB: no"));

@@ -17,6 +17,17 @@ use super::package::{
     title_page_xhtml,
 };
 
+/// User-supplied title/author to use verbatim instead of extracting them from
+/// the novel main page. When present, the title and author are taken exactly
+/// as given (an `author` of `None` means "no author"), so a deliberately blank
+/// author is respected rather than re-filled from the page.
+pub struct EpubMetadataOverride {
+    /// Title used for the EPUB metadata, title page, and filename.
+    pub title: String,
+    /// Author used for the EPUB metadata, title page, and filename.
+    pub author: Option<String>,
+}
+
 pub struct BuildEpubParams {
     /// Main novel page URL (used for metadata + identifier + cover lookup).
     pub novel_main_url: String,
@@ -26,6 +37,9 @@ pub struct BuildEpubParams {
     pub output_epub: Option<PathBuf>,
     /// Optional override for the embedded font.
     pub font_path: Option<PathBuf>,
+    /// Optional title/author override. When `None`, both are extracted from
+    /// the novel main page (the default, non-interactive behaviour).
+    pub metadata_override: Option<EpubMetadataOverride>,
 }
 
 /// Build the embedded stylesheet referencing the embedded font face.
@@ -82,8 +96,13 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
     }
 
     let main_html = fetch_html(&params.novel_main_url).await?;
-    let novel_title = extract_novel_title_from_main_page(&main_html);
-    let author = extract_author_from_main_page(&main_html);
+    let (novel_title, author) = match &params.metadata_override {
+        Some(meta) => (meta.title.clone(), meta.author.clone()),
+        None => (
+            extract_novel_title_from_main_page(&main_html),
+            extract_author_from_main_page(&main_html),
+        ),
+    };
 
     let cover_url = extract_cover_image_url(&params.novel_main_url, &main_html);
     let mut cover_bytes: Option<Vec<u8>> = None;

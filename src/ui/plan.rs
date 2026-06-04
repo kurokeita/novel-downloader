@@ -40,6 +40,8 @@ pub struct InteractivePlan {
     pub fast_skip: bool,
     /// Discovered novel title (for fast-skip path resolution).
     pub novel_title: Option<String>,
+    /// Novel author, used as an EPUB metadata override when set.
+    pub novel_author: Option<String>,
 }
 
 /// Holds the ratatui terminal and ensures the alternate screen + raw mode
@@ -65,6 +67,10 @@ pub struct SummaryParams<'a> {
     pub font_path: Option<&'a std::path::Path>,
     /// Fast-skip flag.
     pub fast_skip: bool,
+    /// Book title that will be written to the EPUB, if known.
+    pub novel_title: Option<&'a str>,
+    /// Book author that will be written to the EPUB, if known.
+    pub novel_author: Option<&'a str>,
 }
 
 /// Render the plan summary text shown before confirmation.
@@ -80,6 +86,8 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
         chapter_dir,
         font_path,
         fast_skip,
+        novel_title,
+        novel_author,
     } = params;
     let mode_label = match mode {
         CrawlMode::Crawl => "Crawl chapters",
@@ -132,6 +140,10 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
         if build_epub { "yes" } else { "no" }
     ));
     if build_epub {
+        if let Some(title) = novel_title {
+            lines.push(format!("Title: {}", title));
+        }
+        lines.push(format!("Author: {}", novel_author.unwrap_or("(none)")));
         let font_line = match font_path {
             Some(p) => format!("Font path: {}", p.display()),
             None => "Font path: default packaged font".into(),

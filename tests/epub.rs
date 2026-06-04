@@ -1,10 +1,11 @@
 use std::io::{Cursor, Read};
 use truyenazz_crawler::epub::{
-    BuildEpubParams, ChapterEntry, ContentOpfParams, build_epub, chapter_xhtml, content_opf,
-    epub_file_stem, extract_author_from_main_page, extract_cover_image_url,
-    extract_novel_description_from_main_page, extract_novel_status_from_main_page,
-    extract_novel_title_from_main_page, extract_title_and_body_from_saved_chapter,
-    list_chapter_files, nav_xhtml, ncx_xml, pick_cover_extension, title_page_xhtml,
+    BuildEpubParams, ChapterEntry, ContentOpfParams, EpubMetadataOverride, build_epub,
+    chapter_xhtml, content_opf, epub_file_stem, extract_author_from_main_page,
+    extract_cover_image_url, extract_novel_description_from_main_page,
+    extract_novel_status_from_main_page, extract_novel_title_from_main_page,
+    extract_title_and_body_from_saved_chapter, list_chapter_files, nav_xhtml, ncx_xml,
+    pick_cover_extension, title_page_xhtml,
 };
 use zip::ZipArchive;
 
@@ -244,6 +245,75 @@ fn content_opf_includes_metadata_and_spine() {
 }
 
 #[tokio::test]
+async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
+    let mut server = mockito::Server::new_async().await;
+    // The page advertises different metadata; the override must win.
+    let main_html = r#"<html><body>
+  <h1>Extracted Title</h1>
+  Tác giả: Extracted Author Thể loại: Tu chân
+</body></html>"#;
+    let _main_mock = server
+        .mock("GET", "/foo/")
+        .with_status(200)
+        .with_body(main_html)
+        .create_async()
+        .await;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Hello.</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let returned = build_epub(BuildEpubParams {
+        novel_main_url: format!("{}/foo/", server.url()),
+        chapter_dir: chapter_dir.clone(),
+        output_epub: None,
+        font_path: None,
+        metadata_override: Some(EpubMetadataOverride {
+            title: "Override Title".to_string(),
+            author: Some("Override Author".to_string()),
+        }),
+    })
+    .await
+    .unwrap();
+
+    // Default filename derives from the overridden title + author.
+    assert_eq!(
+        returned.file_name().unwrap().to_string_lossy(),
+        "Override Title - Override Author.epub"
+    );
+
+    let bytes = tokio::fs::read(&returned).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut opf = String::new();
+    archive
+        .by_name("EPUB/content.opf")
+        .unwrap()
+        .read_to_string(&mut opf)
+        .unwrap();
+    assert!(
+        opf.contains("<dc:title>Override Title</dc:title>"),
+        "opf: {opf}"
+    );
+    assert!(
+        opf.contains("<dc:creator>Override Author</dc:creator>"),
+        "opf: {opf}"
+    );
+    assert!(!opf.contains("Extracted Title"));
+    assert!(!opf.contains("Extracted Author"));
+}
+
+#[tokio::test]
 async fn build_epub_produces_valid_zip_with_expected_entries() {
     let mut server = mockito::Server::new_async().await;
     let main_html = r#"<html><body>
@@ -278,6 +348,7 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
         font_path: None,
+        metadata_override: None,
     })
     .await
     .unwrap();

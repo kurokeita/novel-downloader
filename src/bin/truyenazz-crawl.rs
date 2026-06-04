@@ -10,7 +10,9 @@ use truyenazz_crawler::cli::{
 use truyenazz_crawler::crawler::{
     CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, discover_last_chapter_number,
 };
-use truyenazz_crawler::epub::{BuildEpubParams, build_epub, extract_novel_title_from_main_page};
+use truyenazz_crawler::epub::{
+    BuildEpubParams, EpubMetadataOverride, build_epub, extract_novel_title_from_main_page,
+};
 use truyenazz_crawler::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, SequentialParams, crawl_chapters_parallel,
     crawl_chapters_sequential,
@@ -104,6 +106,7 @@ async fn build_non_interactive_plan(
         if_exists: options.if_exists,
         fast_skip: options.fast_skip,
         novel_title,
+        novel_author: None,
     })
 }
 
@@ -470,12 +473,24 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
         };
         let novel_main_url = format!("{}/", plan.base_url.trim_end_matches('/'));
         let font_path = plan.font_path.clone();
+        // In interactive mode the wizard collected (and let the user edit) the
+        // title/author, so pass them through verbatim. Non-interactive runs
+        // leave this `None` and let `build_epub` extract from the page.
+        let metadata_override = if interactive {
+            plan.novel_title.clone().map(|title| EpubMetadataOverride {
+                title,
+                author: plan.novel_author.clone(),
+            })
+        } else {
+            None
+        };
         let build_future = async move {
             build_epub(BuildEpubParams {
                 novel_main_url,
                 chapter_dir,
                 output_epub: None,
                 font_path,
+                metadata_override,
             })
             .await
         };
