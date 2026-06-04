@@ -145,15 +145,7 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
             let main_url = format!("{}/", url.trim_end_matches('/'));
             let html = match crate::utils::fetch_html(&main_url).await {
                 Ok(h) => h,
-                Err(_) => {
-                    return DiscoveredNovel {
-                        title: None,
-                        author: None,
-                        last_chapter: None,
-                        status: None,
-                        description: None,
-                    };
-                }
+                Err(error) => return Err(format!("Could not fetch {main_url}:\n{error}")),
             };
             let last_chapter = match crate::crawler::find_last_page_url(&html, &main_url) {
                 Some(last_page_url) => match crate::utils::fetch_html(&last_page_url).await {
@@ -163,18 +155,32 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
                 },
                 None => crate::crawler::max_chapter_in_html(&html, &main_url),
             };
-            DiscoveredNovel {
+            Ok(DiscoveredNovel {
                 title: Some(crate::epub::extract_novel_title_from_main_page(&html)),
                 author: crate::epub::extract_author_from_main_page(&html),
                 last_chapter,
                 status: crate::epub::extract_novel_status_from_main_page(&html),
                 description: crate::epub::extract_novel_description_from_main_page(&html),
-            }
+            })
         },
     )
     .await?;
     let novel = match outcome {
-        PromptOutcome::Submitted(novel) => novel,
+        PromptOutcome::Submitted(Ok(novel)) => novel,
+        // The fetch failed: tell the user explicitly instead of advancing with
+        // silently-empty metadata, then let them enter values by hand.
+        PromptOutcome::Submitted(Err(message)) => {
+            return match show_note(
+                "Discovery failed",
+                &format!(
+                    "{message}\n\nYou can still enter the title, author, and chapter range manually."
+                ),
+            )? {
+                PromptOutcome::Submitted(()) => Ok(StepResult::Next(WizardStep::Title)),
+                PromptOutcome::Back => Ok(StepResult::Next(WizardStep::OutputRoot)),
+                PromptOutcome::Quit => Ok(StepResult::Quit),
+            };
+        }
         PromptOutcome::Back => return Ok(StepResult::Next(WizardStep::OutputRoot)),
         PromptOutcome::Quit => return Ok(StepResult::Quit),
     };
@@ -219,7 +225,11 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
         WizardStep::Discover
     };
 
-    if state.novel_title.is_none() {
+    // Only EPUB-only mode reaches this step without having run discovery, so
+    // it is the only path that needs a pre-fill fetch. In crawl modes the
+    // title/author are already populated (or left blank after a reported
+    // discovery failure), so we never re-fetch here.
+    if state.mode == CrawlMode::EpubOnly && state.novel_title.is_none() {
         let url = state.base_url.clone();
         let outcome = run_loading_screen(
             "Fetching novel info",
@@ -227,19 +237,30 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
             async move {
                 let main_url = format!("{}/", url.trim_end_matches('/'));
                 match crate::utils::fetch_html(&main_url).await {
-                    Ok(html) => (
-                        Some(crate::epub::extract_novel_title_from_main_page(&html)),
+                    Ok(html) => Ok((
+                        crate::epub::extract_novel_title_from_main_page(&html),
                         crate::epub::extract_author_from_main_page(&html),
-                    ),
-                    Err(_) => (None, None),
+                    )),
+                    Err(error) => Err(format!("Could not fetch {main_url}:\n{error}")),
                 }
             },
         )
         .await?;
         match outcome {
-            PromptOutcome::Submitted((title, author)) => {
-                state.novel_title = title;
+            PromptOutcome::Submitted(Ok((title, author))) => {
+                state.novel_title = Some(title);
                 state.novel_author = author;
+            }
+            // Surface the failure; the user can still type the title by hand.
+            PromptOutcome::Submitted(Err(message)) => {
+                match show_note(
+                    "Could not read novel info",
+                    &format!("{message}\n\nYou can still enter the title and author manually."),
+                )? {
+                    PromptOutcome::Submitted(()) => {}
+                    PromptOutcome::Back => return Ok(StepResult::Next(back)),
+                    PromptOutcome::Quit => return Ok(StepResult::Quit),
+                }
             }
             PromptOutcome::Back => return Ok(StepResult::Next(back)),
             PromptOutcome::Quit => return Ok(StepResult::Quit),
