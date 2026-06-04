@@ -22,10 +22,26 @@ use super::package::{
 /// as given (an `author` of `None` means "no author"), so a deliberately blank
 /// author is respected rather than re-filled from the page.
 pub struct EpubMetadataOverride {
-    /// Title used for the EPUB metadata, title page, and filename.
+    /// Title used for the EPUB metadata, title page, and filename. Guaranteed
+    /// non-blank by [`EpubMetadataOverride::new`].
     pub title: String,
     /// Author used for the EPUB metadata, title page, and filename.
     pub author: Option<String>,
+}
+
+impl EpubMetadataOverride {
+    /// Build an override from a user-supplied title and author. Returns `None`
+    /// when the title is blank, so a blank title can never bypass page
+    /// extraction and silently produce a `book.epub`. A blank author is
+    /// normalised to `None` ("no author").
+    pub fn new(title: impl Into<String>, author: Option<String>) -> Option<Self> {
+        let title = title.into();
+        if title.trim().is_empty() {
+            return None;
+        }
+        let author = author.filter(|a| !a.trim().is_empty());
+        Some(Self { title, author })
+    }
 }
 
 pub struct BuildEpubParams {

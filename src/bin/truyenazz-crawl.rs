@@ -477,10 +477,9 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
         // title/author, so pass them through verbatim. Non-interactive runs
         // leave this `None` and let `build_epub` extract from the page.
         let metadata_override = if interactive {
-            plan.novel_title.clone().map(|title| EpubMetadataOverride {
-                title,
-                author: plan.novel_author.clone(),
-            })
+            plan.novel_title
+                .clone()
+                .and_then(|title| EpubMetadataOverride::new(title, plan.novel_author.clone()))
         } else {
             None
         };

@@ -46,6 +46,22 @@ fn epub_file_stem_falls_back_to_book_when_empty() {
 }
 
 #[test]
+fn epub_metadata_override_new_rejects_blank_title() {
+    assert!(EpubMetadataOverride::new("", Some("A".into())).is_none());
+    assert!(EpubMetadataOverride::new("   ", None).is_none());
+}
+
+#[test]
+fn epub_metadata_override_new_normalises_blank_author_to_none() {
+    let m = EpubMetadataOverride::new("Title", Some("   ".into())).unwrap();
+    assert_eq!(m.title, "Title");
+    assert!(m.author.is_none());
+
+    let m = EpubMetadataOverride::new("Title", Some("Author".into())).unwrap();
+    assert_eq!(m.author.as_deref(), Some("Author"));
+}
+
+#[test]
 fn extract_novel_title_prefers_h1_over_title_tag() {
     let html =
         "<html><head><title>Foo - truyenazz</title></head><body><h1>Cuốn Sách</h1></body></html>";
