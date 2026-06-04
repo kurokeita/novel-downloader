@@ -210,7 +210,16 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
         };
         let tag = elem.value().name();
         let id = elem.value().attr("id");
-        if tag == "div" && id == Some("data-content-truyen-backup") {
+        // The JS-injected `contentS` paragraphs render at a placeholder div:
+        // older pages use `data-content-truyen-backup`, newer ones attach a
+        // shadow root to `content-metruyenhot`. Splice the injected content in
+        // wherever that placeholder appears.
+        if tag == "div"
+            && matches!(
+                id,
+                Some("data-content-truyen-backup" | "content-metruyenhot")
+            )
+        {
             for line in &injected {
                 if !line.is_empty() && !is_noise(line) {
                     lines.push(line.clone());

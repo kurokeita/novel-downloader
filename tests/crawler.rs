@@ -138,6 +138,36 @@ fn extract_full_chapter_text_extracts_injected_backup_content() {
 }
 
 #[test]
+fn extract_full_chapter_text_injects_at_content_metruyenhot_host() {
+    // Newer metruyenhot pages drop the data-content-truyen-backup div and
+    // instead inject contentS into a shadow-DOM host <div
+    // id="content-metruyenhot">. The hidden paragraph's text lives in a
+    // random custom attribute (rendered via ::before { content: attr(...) }),
+    // so it is recovered through the attribute fallback.
+    let injected = "var contentS = '<p class=\"hvtsoigr8\" onmousedown=\"return false\" \
+                    wkzclgqthe=\"Người trong nhà? Hắn xứng sao?\"></p>'; div.";
+    let injected = format!("{}innerHTML = contentS;", injected);
+    let html = format!(
+        r#"
+<html><body>
+  <div class="chapter-c">
+    <p>Mở đầu.</p>
+    <div id="content-metruyenhot"></div>
+    <p>Kết thúc.</p>
+  </div>
+  <script>{}</script>
+</body></html>
+"#,
+        injected
+    );
+    let chapter = extract_full_chapter_text(&html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Mở đầu.", "Người trong nhà? Hắn xứng sao?", "Kết thúc."]
+    );
+}
+
+#[test]
 fn extract_full_chapter_text_errors_when_chapter_div_missing() {
     let html = "<html><body><p>nothing</p></body></html>";
     let err = extract_full_chapter_text(html).unwrap_err();
