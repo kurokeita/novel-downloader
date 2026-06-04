@@ -262,6 +262,18 @@ async fn sequential_emits_progress_events_for_each_chapter() {
         _ => None,
     });
     assert_eq!(completed_status, Some(CrawlStatus::Written));
+
+    // The Failed event must carry the error reason so the UI can show it live.
+    let failed_message = captured.iter().find_map(|e| match e {
+        ProgressEvent::Failed { number, message } if *number == 2 => Some(message.clone()),
+        _ => None,
+    });
+    assert!(
+        failed_message
+            .as_deref()
+            .is_some_and(|m| m.contains("HTTP 500")),
+        "expected the Failed event to carry the HTTP 500 reason, got: {failed_message:?}"
+    );
 }
 
 #[tokio::test]

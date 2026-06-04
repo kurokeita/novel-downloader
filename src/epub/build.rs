@@ -5,7 +5,7 @@ use zip::CompressionMethod;
 use zip::write::SimpleFileOptions;
 
 use crate::font::{FontMetadata, extract_font_metadata};
-use crate::utils::{download_binary, fetch_html, file_exists, find_font_file, slugify};
+use crate::utils::{download_binary, fetch_html, file_exists, find_font_file};
 
 use super::chapters::{extract_title_and_body_from_saved_chapter, list_chapter_files};
 use super::metadata::{
@@ -17,6 +17,33 @@ use super::package::{
     title_page_xhtml,
 };
 
+/// User-supplied title/author to use verbatim instead of extracting them from
+/// the novel main page. When present, the title and author are taken exactly
+/// as given (an `author` of `None` means "no author"), so a deliberately blank
+/// author is respected rather than re-filled from the page.
+pub struct EpubMetadataOverride {
+    /// Title used for the EPUB metadata, title page, and filename. Guaranteed
+    /// non-blank by [`EpubMetadataOverride::new`].
+    pub title: String,
+    /// Author used for the EPUB metadata, title page, and filename.
+    pub author: Option<String>,
+}
+
+impl EpubMetadataOverride {
+    /// Build an override from a user-supplied title and author. Returns `None`
+    /// when the title is blank, so a blank title can never bypass page
+    /// extraction and silently produce a `book.epub`. A blank author is
+    /// normalised to `None` ("no author").
+    pub fn new(title: impl Into<String>, author: Option<String>) -> Option<Self> {
+        let title = title.into();
+        if title.trim().is_empty() {
+            return None;
+        }
+        let author = author.filter(|a| !a.trim().is_empty());
+        Some(Self { title, author })
+    }
+}
+
 pub struct BuildEpubParams {
     /// Main novel page URL (used for metadata + identifier + cover lookup).
     pub novel_main_url: String,
@@ -26,6 +53,9 @@ pub struct BuildEpubParams {
     pub output_epub: Option<PathBuf>,
     /// Optional override for the embedded font.
     pub font_path: Option<PathBuf>,
+    /// Optional title/author override. When `None`, both are extracted from
+    /// the novel main page (the default, non-interactive behaviour).
+    pub metadata_override: Option<EpubMetadataOverride>,
 }
 
 /// Build the embedded stylesheet referencing the embedded font face.
@@ -39,6 +69,33 @@ p {{\n  margin: 0 0 0.9em 0;\n  text-indent: 2em;\n  text-align: justify;\n}}",
         family = escaped_family,
         font = font_file_name,
     )
+}
+
+/// Build the default EPUB file stem (no extension) from the novel title and
+/// optional author, as the human-readable `<title> - <author>`. The original
+/// Vietnamese text (diacritics, spaces, parentheses, dashes) is preserved;
+/// only characters that are illegal in file names on common platforms are
+/// replaced with a space and collapsed. Falls back to the title alone when
+/// the author is missing or blank, and to `book` when nothing usable remains.
+pub fn epub_file_stem(title: &str, author: Option<&str>) -> String {
+    let combined = match author {
+        Some(a) if !a.trim().is_empty() => format!("{} - {}", title.trim(), a.trim()),
+        _ => title.trim().to_string(),
+    };
+    let sanitized: String = combined
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => ' ',
+            c if c.is_control() => ' ',
+            c => c,
+        })
+        .collect();
+    let collapsed = sanitized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        "book".to_string()
+    } else {
+        collapsed
+    }
 }
 
 /// Assemble the EPUB archive at `output_epub` from previously-saved chapter
@@ -55,8 +112,13 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
     }
 
     let main_html = fetch_html(&params.novel_main_url).await?;
-    let novel_title = extract_novel_title_from_main_page(&main_html);
-    let author = extract_author_from_main_page(&main_html);
+    let (novel_title, author) = match &params.metadata_override {
+        Some(meta) => (meta.title.clone(), meta.author.clone()),
+        None => (
+            extract_novel_title_from_main_page(&main_html),
+            extract_author_from_main_page(&main_html),
+        ),
+    };
 
     let cover_url = extract_cover_image_url(&params.novel_main_url, &main_html);
     let mut cover_bytes: Option<Vec<u8>> = None;
@@ -72,10 +134,12 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
         cover_ext = pick_cover_extension(url, &cover_media_type);
     }
 
-    let output_epub = params
-        .output_epub
-        .clone()
-        .unwrap_or_else(|| chapter_dir.join(format!("{}.epub", slugify(&novel_title, "book"))));
+    let output_epub = params.output_epub.clone().unwrap_or_else(|| {
+        chapter_dir.join(format!(
+            "{}.epub",
+            epub_file_stem(&novel_title, author.as_deref())
+        ))
+    });
 
     let font_path = find_font_file(params.font_path.as_deref()).await?;
     let font_bytes = match &font_path {

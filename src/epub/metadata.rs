@@ -49,24 +49,26 @@ pub fn extract_novel_status_from_main_page(html_source: &str) -> Option<String> 
     if text.is_empty() { None } else { Some(text) }
 }
 
-/// Extract the short novel description from the main page. The description
-/// lives in a `<p>` that is the second element-level sibling of
-/// `div.content1 div.info` (i.e. one element separates them).
+/// Extract the short novel description from the main page. The novel info
+/// block is followed by a "Thông tin chi tiết:" marker paragraph and then
+/// the description paragraph; some hosts (e.g. metruyenhotvn.com) inject an
+/// extra empty `<p>` between the two, so we skip the first element-level
+/// sibling (the marker) and return the next non-empty `<p>` we find.
 pub fn extract_novel_description_from_main_page(html_source: &str) -> Option<String> {
     let doc = Html::parse_document(html_source);
     let info_sel = Selector::parse("div.content1 div.info").ok()?;
     let info = doc.select(&info_sel).next()?;
     let mut sibling = info.next_sibling();
-    let mut element_count = 0usize;
+    let mut skipped_marker = false;
     while let Some(node) = sibling {
         if let Some(elem) = scraper::ElementRef::wrap(node) {
-            element_count += 1;
-            if element_count == 2 {
-                if elem.value().name() != "p" {
-                    return None;
-                }
+            if !skipped_marker {
+                skipped_marker = true;
+            } else if elem.value().name() == "p" {
                 let text = clean_text(&elem.text().collect::<String>());
-                return if text.is_empty() { None } else { Some(text) };
+                if !text.is_empty() {
+                    return Some(text);
+                }
             }
         }
         sibling = node.next_sibling();

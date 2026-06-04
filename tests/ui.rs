@@ -3,8 +3,8 @@ use truyenazz_crawler::crawler::CrawlStatus;
 use truyenazz_crawler::crawler::ExistingFilePolicy;
 use truyenazz_crawler::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, longest_common_prefix,
-    path_completions, prompt_block_height,
+    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, expand_tilde,
+    longest_common_prefix, path_completions, prompt_block_height,
 };
 
 /// Build a `KeyEvent` with no modifiers — a tiny ergonomic helper for the
@@ -207,9 +207,12 @@ fn download_progress_records_started_and_completed() {
 fn download_progress_records_failures() {
     let mut progress = DownloadProgress::new(2);
     progress.record_started(1);
-    progress.record_failed(1);
+    progress.record_failed(1, "HTTP 503".to_string());
     assert_eq!(progress.failed, 1);
-    assert_eq!(progress.log.last(), Some(&DownloadLogEntry::Fail(1)));
+    assert_eq!(
+        progress.log.last(),
+        Some(&DownloadLogEntry::Fail(1, "HTTP 503".to_string()))
+    );
     // failed entries also count as "advanced" for percentage.
     assert_eq!(progress.advanced(), 1);
 }
@@ -383,7 +386,7 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
     let output_root = std::path::PathBuf::from("/tmp/out");
     let font_path = std::path::PathBuf::from("/tmp/MyFont.ttf");
     let summary = build_summary(SummaryParams {
-        base_url: "https://truyenazz.me/foo",
+        base_url: "https://metruyenhotvn.com/foo",
         mode: CrawlMode::CrawlEpub,
         output_root: output_root.as_path(),
         chapter_numbers: Some(chapters.as_slice()),
@@ -393,8 +396,12 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
         chapter_dir: None,
         font_path: Some(font_path.as_path()),
         fast_skip: true,
+        novel_title: Some("Tên Truyện"),
+        novel_author: Some("Tác Giả"),
     });
-    assert!(summary.contains("Base URL: https://truyenazz.me/foo"));
+    assert!(summary.contains("Base URL: https://metruyenhotvn.com/foo"));
+    assert!(summary.contains("Title: Tên Truyện"));
+    assert!(summary.contains("Author: Tác Giả"));
     assert!(summary.contains("Mode: Crawl chapters and build EPUB"));
     assert!(summary.contains("Output root: /tmp/out"));
     assert!(summary.contains("Chapters: 1 -> 50 (50 total)"));
@@ -439,7 +446,44 @@ fn build_summary_marks_fast_skip_no_when_disabled() {
         chapter_dir: None,
         font_path: None,
         fast_skip: false,
+        novel_title: None,
+        novel_author: None,
     });
     assert!(summary.contains("Fast skip: no"));
     assert!(summary.contains("Build EPUB: no"));
+}
+
+#[test]
+fn expand_tilde_leaves_values_without_leading_tilde_unchanged() {
+    assert_eq!(expand_tilde("/abs/path").as_ref(), "/abs/path");
+    assert_eq!(expand_tilde("relative").as_ref(), "relative");
+    assert_eq!(expand_tilde("").as_ref(), "");
+}
+
+#[test]
+fn expand_tilde_resolves_bare_tilde_to_home() {
+    // SAFETY: tests run sequentially within this binary; std::env::set_var is
+    // fine here because no other test relies on $HOME concurrently.
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(expand_tilde("~").as_ref(), "/Users/tester");
+}
+
+#[test]
+fn expand_tilde_resolves_tilde_slash_prefix() {
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(
+        expand_tilde("~/Downloads").as_ref(),
+        "/Users/tester/Downloads"
+    );
+    assert_eq!(
+        expand_tilde("~/a/b/c.txt").as_ref(),
+        "/Users/tester/a/b/c.txt"
+    );
+}
+
+#[test]
+fn expand_tilde_does_not_touch_tilde_user_form() {
+    // We only resolve the current user's $HOME, not ~someone-else.
+    unsafe { std::env::set_var("HOME", "/Users/tester") };
+    assert_eq!(expand_tilde("~bob/foo").as_ref(), "~bob/foo");
 }

@@ -3,7 +3,7 @@ mod chapters;
 mod metadata;
 mod package;
 
-pub use build::{BuildEpubParams, build_epub};
+pub use build::{BuildEpubParams, EpubMetadataOverride, build_epub, epub_file_stem};
 pub use chapters::{SavedChapter, extract_title_and_body_from_saved_chapter, list_chapter_files};
 pub use metadata::{
     extract_author_from_main_page, extract_cover_image_url,

@@ -37,7 +37,7 @@ impl From<CliExistingPolicy> for ExistingFilePolicy {
     version
 )]
 pub struct RawArgs {
-    /// Novel base URL, e.g. `https://truyenazz.me/your-novel`.
+    /// Novel base URL. Supported hosts: metruyenhotne.com, metruyenhotvn.com.
     pub base_url: Option<String>,
 
     /// Start chapter number (inclusive).
@@ -87,6 +87,11 @@ pub struct RawArgs {
     /// Launch the interactive TUI.
     #[arg(short = 'i', long, action = ArgAction::SetTrue)]
     pub interactive: bool,
+
+    /// Bypass the supported-host registry; allow any URL host (used for the
+    /// local mock fixture and integration tests). Hidden in `--help`.
+    #[arg(long, action = ArgAction::SetTrue, hide = true)]
+    pub allow_any_host: bool,
 }
 
 /// Normalised CLI options used by the rest of the program. Decouples the
@@ -117,6 +122,8 @@ pub struct CliOptions {
     pub fast_skip: bool,
     /// `-i` / `--interactive` flag.
     pub interactive: bool,
+    /// `--allow-any-host` flag: bypass the supported-host registry. Hidden.
+    pub allow_any_host: bool,
 }
 
 impl Default for CliOptions {
@@ -136,6 +143,7 @@ impl Default for CliOptions {
             if_exists: ExistingFilePolicy::Ask,
             fast_skip: false,
             interactive: false,
+            allow_any_host: false,
         }
     }
 }
@@ -167,6 +175,7 @@ pub fn from_raw(raw: RawArgs) -> ParsedCli {
         if_exists: raw.if_exists.into(),
         fast_skip: raw.fast_skip,
         interactive: raw.interactive,
+        allow_any_host: raw.allow_any_host,
     };
     ParsedCli {
         base_url: raw.base_url,

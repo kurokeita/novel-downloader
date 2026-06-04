@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{Result, anyhow};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -47,6 +49,53 @@ fn element_text(elem: &ElementRef<'_>) -> String {
     clean_text(&combined)
 }
 
+/// Matches one CSS rule: a selector list, then a `{ ... }` declaration block.
+/// Both groups exclude braces so the match lands on the innermost rule, which
+/// keeps it working for rules nested inside at-rules (e.g. `@media`).
+static CSS_RULE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)([^{}]*)\{([^{}]*)\}").unwrap());
+
+/// Matches a `.class-name` token inside a CSS selector.
+static CSS_CLASS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.([A-Za-z0-9_-]+)").unwrap());
+
+/// Matches a `display: none` declaration (whitespace-tolerant).
+static DISPLAY_NONE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)display\s*:\s*none").unwrap());
+
+/// Scan every `<style>` block in `doc` and collect the set of class names that
+/// are hidden via a `display: none` rule. metruyenhot hides its injected
+/// promo/noise paragraphs this way under a per-page rotating class name
+/// (`mshow-hb`, `mshow-bs`, `ms-b`, ...), so detecting the hidden classes
+/// dynamically is more robust than hard-coding the rotating names.
+fn hidden_class_names(doc: &Html) -> HashSet<String> {
+    let style_sel = Selector::parse("style").unwrap();
+    let mut hidden = HashSet::new();
+    for style in doc.select(&style_sel) {
+        let css: String = style.text().collect();
+        for rule in CSS_RULE_RE.captures_iter(&css) {
+            let selectors = &rule[1];
+            let declarations = &rule[2];
+            if !DISPLAY_NONE_RE.is_match(declarations) {
+                continue;
+            }
+            for class in CSS_CLASS_RE.captures_iter(selectors) {
+                hidden.insert(class[1].to_string());
+            }
+        }
+    }
+    hidden
+}
+
+/// True when `elem` carries a class listed in `hidden`, marking it as a
+/// CSS-hidden noise element to skip.
+fn is_hidden_noise_element(elem: &ElementRef<'_>, hidden: &HashSet<String>) -> bool {
+    if hidden.is_empty() {
+        return false;
+    }
+    elem.value()
+        .attr("class")
+        .map(|class| class.split_whitespace().any(|token| hidden.contains(token)))
+        .unwrap_or(false)
+}
+
 /// Try to derive a non-empty text representation for `elem`. Falls back to
 /// the first attribute value (excluding presentation/scripting attributes)
 /// when the inner text is empty, mirroring the TS extractor.
@@ -74,7 +123,7 @@ fn extract_text_from_element(elem: &ElementRef<'_>) -> Option<String> {
 /// Pull the obfuscated injected paragraphs out of the page's inline JS, parse
 /// them as HTML, and return cleaned non-noise paragraph texts. Returns an
 /// empty vector if no `contentS` block is found.
-fn extract_injected_content_from_script(full_html: &str) -> Vec<String> {
+fn extract_injected_content_from_script(full_html: &str, hidden: &HashSet<String>) -> Vec<String> {
     let captures = match CONTENT_S_RE.captures(full_html) {
         Some(c) => c,
         None => return Vec::new(),
@@ -86,6 +135,9 @@ fn extract_injected_content_from_script(full_html: &str) -> Vec<String> {
     let p_sel = Selector::parse("p").unwrap();
     let mut out = Vec::new();
     for p in doc.select(&p_sel) {
+        if is_hidden_noise_element(&p, hidden) {
+            continue;
+        }
         if let Some(text) = extract_text_from_element(&p)
             && !is_noise(&text)
         {
@@ -147,7 +199,8 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
 
     let novel_title = extract_novel_title(&doc);
     let chapter_title = extract_chapter_title(&doc);
-    let injected = extract_injected_content_from_script(full_html);
+    let hidden = hidden_class_names(&doc);
+    let injected = extract_injected_content_from_script(full_html, &hidden);
 
     let p_sel = Selector::parse("p").unwrap();
     let mut lines: Vec<String> = Vec::new();
@@ -158,12 +211,24 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
         };
         let tag = elem.value().name();
         let id = elem.value().attr("id");
-        if tag == "div" && id == Some("data-content-truyen-backup") {
+        // The JS-injected `contentS` paragraphs render at a placeholder div:
+        // older pages use `data-content-truyen-backup`, newer ones attach a
+        // shadow root to `content-metruyenhot`. Splice the injected content in
+        // wherever that placeholder appears.
+        if tag == "div"
+            && matches!(
+                id,
+                Some("data-content-truyen-backup" | "content-metruyenhot")
+            )
+        {
             for line in &injected {
                 if !line.is_empty() && !is_noise(line) {
                     lines.push(line.clone());
                 }
             }
+            continue;
+        }
+        if is_hidden_noise_element(&elem, &hidden) {
             continue;
         }
         if tag == "p" || tag == "span" {
@@ -175,6 +240,9 @@ pub fn extract_full_chapter_text(full_html: &str) -> Result<ChapterContent> {
             continue;
         }
         for descendant in elem.select(&p_sel) {
+            if is_hidden_noise_element(&descendant, &hidden) {
+                continue;
+            }
             if let Some(text) = extract_text_from_element(&descendant)
                 && !is_noise(&text)
             {

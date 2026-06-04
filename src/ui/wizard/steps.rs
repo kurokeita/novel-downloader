@@ -7,7 +7,7 @@ use crate::ui::plan::{CrawlMode, InteractivePlan, SummaryParams, build_summary};
 use crate::ui::screens::{
     run_confirm, run_loading_screen, run_path_prompt, run_select, run_text_prompt, show_note,
 };
-use crate::ui::widgets::{Select, SelectOption, Validator};
+use crate::ui::widgets::{Select, SelectOption, Validator, expand_tilde};
 
 use super::state::{FontChoice, StepResult, WizardState, WizardStep};
 
@@ -37,21 +37,21 @@ pub(super) fn step_base_url(state: &mut WizardState) -> Result<StepResult> {
     if state.has_initial_url {
         return Ok(StepResult::Next(WizardStep::Mode));
     }
-    let validator: Validator = Box::new(|value: &str| {
+    let allow_any_host = state.allow_any_host;
+    let validator: Validator = Box::new(move |value: &str| {
         let trimmed = value.trim();
-        let valid = !trimmed.is_empty()
-            && (trimmed.starts_with("http://") || trimmed.starts_with("https://"));
-        if valid {
-            None
-        } else {
-            Some("Enter a valid http:// or https:// URL.".to_string())
+        if trimmed.is_empty()
+            || !(trimmed.starts_with("http://") || trimmed.starts_with("https://"))
+        {
+            return Some("Enter a valid http:// or https:// URL.".to_string());
         }
+        crate::sites::validate_url(trimmed, allow_any_host)
     });
     let outcome = run_text_prompt(
         "Novel base URL",
         "Paste the novel base URL.",
         Some(state.base_url.clone()).filter(|s| !s.is_empty()),
-        Some("https://truyenazz.me/your-novel"),
+        Some("https://metruyenhotvn.com/your-novel"),
         Some(validator),
     )?;
     advance_or_back!(outcome, WizardStep::Welcome, |value| {
@@ -93,23 +93,29 @@ pub(super) fn step_mode(state: &mut WizardState) -> Result<StepResult> {
     })
 }
 
-/// Output root prompt.
+/// Output root prompt. Offers path autocomplete and creates the directory
+/// (and any missing parents) when it does not exist yet.
 pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
-    let outcome = run_text_prompt(
+    let outcome = run_path_prompt(
         "Output root",
-        "Where should chapter files (and the EPUB) be saved?",
+        "Where should chapter files (and the EPUB) be saved? Tab to autocomplete.",
         Some(state.output_root.to_string_lossy().into_owned()),
-        None,
-        Some(Box::new(|v| {
-            if v.trim().is_empty() {
-                Some("Enter an output directory.".into())
-            } else {
-                None
-            }
-        })),
     )?;
     advance_or_back!(outcome, WizardStep::Mode, |value| {
-        state.output_root = PathBuf::from(value.trim());
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            show_note("Output root", "Enter an output directory.")?;
+            return Ok(StepResult::Next(WizardStep::OutputRoot));
+        }
+        let path = PathBuf::from(expand_tilde(trimmed).as_ref());
+        if let Err(error) = std::fs::create_dir_all(&path) {
+            show_note(
+                "Output root",
+                &format!("Could not create {}:\n{error}", path.display()),
+            )?;
+            return Ok(StepResult::Next(WizardStep::OutputRoot));
+        }
+        state.output_root = path;
         let next = if state.mode == CrawlMode::EpubOnly {
             WizardStep::ChapterDir
         } else {
@@ -122,6 +128,7 @@ pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
 /// Aggregated novel metadata pulled out of the main page during discovery.
 struct DiscoveredNovel {
     title: Option<String>,
+    author: Option<String>,
     last_chapter: Option<u32>,
     status: Option<String>,
     description: Option<String>,
@@ -138,33 +145,47 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
             let main_url = format!("{}/", url.trim_end_matches('/'));
             let html = match crate::utils::fetch_html(&main_url).await {
                 Ok(h) => h,
-                Err(_) => {
-                    return DiscoveredNovel {
-                        title: None,
-                        last_chapter: None,
-                        status: None,
-                        description: None,
-                    };
-                }
+                Err(error) => return Err(format!("Could not fetch {main_url}:\n{error}")),
             };
-            DiscoveredNovel {
+            let last_chapter = match crate::crawler::find_last_page_url(&html, &main_url) {
+                Some(last_page_url) => match crate::utils::fetch_html(&last_page_url).await {
+                    Ok(last_html) => crate::crawler::max_chapter_in_html(&last_html, &main_url)
+                        .or_else(|| crate::crawler::max_chapter_in_html(&html, &main_url)),
+                    Err(_) => crate::crawler::max_chapter_in_html(&html, &main_url),
+                },
+                None => crate::crawler::max_chapter_in_html(&html, &main_url),
+            };
+            Ok(DiscoveredNovel {
                 title: Some(crate::epub::extract_novel_title_from_main_page(&html)),
-                last_chapter: crate::crawler::discover_last_chapter_number_from_html(
-                    &html, &main_url,
-                )
-                .ok(),
+                author: crate::epub::extract_author_from_main_page(&html),
+                last_chapter,
                 status: crate::epub::extract_novel_status_from_main_page(&html),
                 description: crate::epub::extract_novel_description_from_main_page(&html),
-            }
+            })
         },
     )
     .await?;
     let novel = match outcome {
-        PromptOutcome::Submitted(novel) => novel,
+        PromptOutcome::Submitted(Ok(novel)) => novel,
+        // The fetch failed: tell the user explicitly instead of advancing with
+        // silently-empty metadata, then let them enter values by hand.
+        PromptOutcome::Submitted(Err(message)) => {
+            return match show_note(
+                "Discovery failed",
+                &format!(
+                    "{message}\n\nYou can still enter the title, author, and chapter range manually."
+                ),
+            )? {
+                PromptOutcome::Submitted(()) => Ok(StepResult::Next(WizardStep::Title)),
+                PromptOutcome::Back => Ok(StepResult::Next(WizardStep::OutputRoot)),
+                PromptOutcome::Quit => Ok(StepResult::Quit),
+            };
+        }
         PromptOutcome::Back => return Ok(StepResult::Next(WizardStep::OutputRoot)),
         PromptOutcome::Quit => return Ok(StepResult::Quit),
     };
     state.novel_title = novel.title;
+    state.novel_author = novel.author;
     state.last_discovered = novel.last_chapter;
     state.novel_status = novel.status;
     state.novel_description = novel.description;
@@ -191,7 +212,105 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
             PromptOutcome::Quit => return Ok(StepResult::Quit),
         }
     }
-    Ok(StepResult::Next(WizardStep::StartChapter))
+    Ok(StepResult::Next(WizardStep::Title))
+}
+
+/// Book-title prompt, pre-filled with the title discovered from the web. In
+/// EPUB-only mode the wizard skips discovery, so this step fetches the main
+/// page once to pre-fill the title and author before prompting.
+pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
+    let back = if state.mode == CrawlMode::EpubOnly {
+        WizardStep::ChapterDir
+    } else {
+        WizardStep::Discover
+    };
+
+    // Only EPUB-only mode reaches this step without having run discovery, so
+    // it is the only path that needs a pre-fill fetch. In crawl modes the
+    // title/author are already populated (or left blank after a reported
+    // discovery failure), so we never re-fetch here.
+    if state.mode == CrawlMode::EpubOnly && state.novel_title.is_none() {
+        let url = state.base_url.clone();
+        let outcome = run_loading_screen(
+            "Fetching novel info",
+            "Reading the title and author from the main page…",
+            async move {
+                let main_url = format!("{}/", url.trim_end_matches('/'));
+                match crate::utils::fetch_html(&main_url).await {
+                    Ok(html) => Ok((
+                        crate::epub::extract_novel_title_from_main_page(&html),
+                        crate::epub::extract_author_from_main_page(&html),
+                    )),
+                    Err(error) => Err(format!("Could not fetch {main_url}:\n{error}")),
+                }
+            },
+        )
+        .await?;
+        match outcome {
+            PromptOutcome::Submitted(Ok((title, author))) => {
+                state.novel_title = Some(title);
+                state.novel_author = author;
+            }
+            // Surface the failure; the user can still type the title by hand.
+            PromptOutcome::Submitted(Err(message)) => {
+                match show_note(
+                    "Could not read novel info",
+                    &format!("{message}\n\nYou can still enter the title and author manually."),
+                )? {
+                    PromptOutcome::Submitted(()) => {}
+                    PromptOutcome::Back => return Ok(StepResult::Next(back)),
+                    PromptOutcome::Quit => return Ok(StepResult::Quit),
+                }
+            }
+            PromptOutcome::Back => return Ok(StepResult::Next(back)),
+            PromptOutcome::Quit => return Ok(StepResult::Quit),
+        }
+    }
+
+    let validator: Validator = Box::new(|value: &str| {
+        if value.trim().is_empty() {
+            Some("Enter a book title.".to_string())
+        } else {
+            None
+        }
+    });
+    let outcome = run_text_prompt(
+        "Book title",
+        "Title used for the EPUB metadata, title page, and filename.",
+        state.novel_title.clone().filter(|s| !s.is_empty()),
+        None,
+        Some(validator),
+    )?;
+    advance_or_back!(outcome, back, |value| {
+        state.novel_title = Some(value.trim().to_string());
+        Ok(StepResult::Next(WizardStep::Author))
+    })
+}
+
+/// Author prompt, pre-filled with the author discovered from the web. A blank
+/// value is kept as "no author" rather than re-extracted at build time.
+pub(super) fn step_author(state: &mut WizardState) -> Result<StepResult> {
+    let next = if state.mode == CrawlMode::EpubOnly {
+        WizardStep::FontChoice
+    } else {
+        WizardStep::StartChapter
+    };
+    let outcome = run_text_prompt(
+        "Author",
+        "Author name for the EPUB (leave blank if unknown).",
+        state.novel_author.clone().filter(|s| !s.is_empty()),
+        None,
+        None,
+    )?;
+    advance_or_back!(outcome, WizardStep::Title, |value| {
+        let trimmed = value.trim();
+        state.novel_author = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        Ok(StepResult::Next(next))
+    })
 }
 
 /// Start chapter prompt.
@@ -212,7 +331,7 @@ pub(super) fn step_start_chapter(state: &mut WizardState) -> Result<StepResult> 
         None,
         Some(validator),
     )?;
-    advance_or_back!(outcome, WizardStep::OutputRoot, |value| {
+    advance_or_back!(outcome, WizardStep::Author, |value| {
         state.start_chapter = value.trim().parse().unwrap_or(1);
         Ok(StepResult::Next(WizardStep::EndChapter))
     })
@@ -328,19 +447,17 @@ pub(super) fn step_if_exists(state: &mut WizardState) -> Result<StepResult> {
 
 /// Chapter directory prompt — only used in `EpubOnly` mode.
 pub(super) fn step_chapter_dir(state: &mut WizardState) -> Result<StepResult> {
-    let outcome = run_text_prompt(
+    let outcome = run_path_prompt(
         "Chapter directory",
-        "Path to the existing chapter directory.",
+        "Path to the existing chapter directory. Tab to autocomplete.",
         state
             .chapter_dir
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
-        None,
-        None,
     )?;
     advance_or_back!(outcome, WizardStep::OutputRoot, |value| {
-        state.chapter_dir = Some(PathBuf::from(value.trim()));
-        Ok(StepResult::Next(WizardStep::FontChoice))
+        state.chapter_dir = Some(PathBuf::from(expand_tilde(value.trim()).as_ref()));
+        Ok(StepResult::Next(WizardStep::Title))
     })
 }
 
@@ -384,7 +501,7 @@ pub(super) fn step_font_choice(state: &mut WizardState) -> Result<StepResult> {
         ),
     )?;
     let previous = if state.mode == CrawlMode::EpubOnly {
-        WizardStep::ChapterDir
+        WizardStep::Author
     } else {
         WizardStep::FastSkip
     };
@@ -416,7 +533,7 @@ pub(super) fn step_font_path(state: &mut WizardState) -> Result<StepResult> {
         if trimmed.is_empty() {
             return Ok(StepResult::Next(WizardStep::FontChoice));
         }
-        state.font_path = Some(PathBuf::from(trimmed));
+        state.font_path = Some(PathBuf::from(expand_tilde(trimmed).as_ref()));
         Ok(StepResult::Next(WizardStep::Confirm))
     })
 }
@@ -442,6 +559,8 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
         chapter_dir: state.chapter_dir.as_deref(),
         font_path: state.font_path.as_deref(),
         fast_skip: state.fast_skip,
+        novel_title: state.novel_title.as_deref(),
+        novel_author: state.novel_author.as_deref(),
     });
     let previous = match state.mode {
         CrawlMode::Crawl => WizardStep::FastSkip,
@@ -465,6 +584,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
             if_exists: state.if_exists,
             fast_skip: state.fast_skip,
             novel_title: state.novel_title.clone(),
+            novel_author: state.novel_author.clone(),
         })),
         PromptOutcome::Submitted(false) => Ok(StepResult::Next(previous)),
         PromptOutcome::Back => Ok(StepResult::Next(previous)),

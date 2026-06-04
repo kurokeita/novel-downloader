@@ -10,6 +10,8 @@ pub(super) enum WizardStep {
     Mode,
     OutputRoot,
     Discover,
+    Title,
+    Author,
     StartChapter,
     EndChapter,
     Workers,
@@ -47,6 +49,7 @@ pub(super) struct WizardState {
     pub(super) mode: CrawlMode,
     pub(super) output_root: PathBuf,
     pub(super) novel_title: Option<String>,
+    pub(super) novel_author: Option<String>,
     pub(super) novel_status: Option<String>,
     pub(super) novel_description: Option<String>,
     pub(super) last_discovered: Option<u32>,
@@ -59,6 +62,7 @@ pub(super) struct WizardState {
     pub(super) chapter_dir: Option<PathBuf>,
     pub(super) font_choice: FontChoice,
     pub(super) font_path: Option<PathBuf>,
+    pub(super) allow_any_host: bool,
 }
 
 impl WizardState {
@@ -78,6 +82,7 @@ impl WizardState {
             mode,
             output_root: PathBuf::from(&options.output_root),
             novel_title: None,
+            novel_author: None,
             novel_status: None,
             novel_description: None,
             last_discovered: None,
@@ -94,6 +99,7 @@ impl WizardState {
                 FontChoice::Default
             },
             font_path: options.font_path.as_ref().map(PathBuf::from),
+            allow_any_host: options.allow_any_host,
         }
     }
 }

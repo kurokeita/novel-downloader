@@ -1,12 +1,65 @@
 use std::io::{Cursor, Read};
 use truyenazz_crawler::epub::{
-    BuildEpubParams, ChapterEntry, ContentOpfParams, build_epub, chapter_xhtml, content_opf,
-    extract_author_from_main_page, extract_cover_image_url,
-    extract_novel_description_from_main_page, extract_novel_status_from_main_page,
-    extract_novel_title_from_main_page, extract_title_and_body_from_saved_chapter,
-    list_chapter_files, nav_xhtml, ncx_xml, pick_cover_extension, title_page_xhtml,
+    BuildEpubParams, ChapterEntry, ContentOpfParams, EpubMetadataOverride, build_epub,
+    chapter_xhtml, content_opf, epub_file_stem, extract_author_from_main_page,
+    extract_cover_image_url, extract_novel_description_from_main_page,
+    extract_novel_status_from_main_page, extract_novel_title_from_main_page,
+    extract_title_and_body_from_saved_chapter, list_chapter_files, nav_xhtml, ncx_xml,
+    pick_cover_extension, title_page_xhtml,
 };
 use zip::ZipArchive;
+
+#[test]
+fn epub_file_stem_combines_title_and_author_preserving_unicode() {
+    assert_eq!(
+        epub_file_stem(
+            "Người Chồng Vô Dụng Của Nữ Thần - Lâm Chính (Bản Chuẩn - Mới)",
+            Some("Bạch Long")
+        ),
+        "Người Chồng Vô Dụng Của Nữ Thần - Lâm Chính (Bản Chuẩn - Mới) - Bạch Long"
+    );
+}
+
+#[test]
+fn epub_file_stem_uses_title_only_when_author_missing_or_blank() {
+    assert_eq!(
+        epub_file_stem("Người Chồng Vô Dụng", None),
+        "Người Chồng Vô Dụng"
+    );
+    assert_eq!(
+        epub_file_stem("Người Chồng Vô Dụng", Some("   ")),
+        "Người Chồng Vô Dụng"
+    );
+}
+
+#[test]
+fn epub_file_stem_replaces_illegal_path_characters() {
+    // Path separators and Windows-reserved characters become spaces, then
+    // runs of whitespace collapse to single spaces.
+    assert_eq!(epub_file_stem("A/B: C?", Some("D|E")), "A B C - D E");
+}
+
+#[test]
+fn epub_file_stem_falls_back_to_book_when_empty() {
+    assert_eq!(epub_file_stem("", None), "book");
+    assert_eq!(epub_file_stem("///", None), "book");
+}
+
+#[test]
+fn epub_metadata_override_new_rejects_blank_title() {
+    assert!(EpubMetadataOverride::new("", Some("A".into())).is_none());
+    assert!(EpubMetadataOverride::new("   ", None).is_none());
+}
+
+#[test]
+fn epub_metadata_override_new_normalises_blank_author_to_none() {
+    let m = EpubMetadataOverride::new("Title", Some("   ".into())).unwrap();
+    assert_eq!(m.title, "Title");
+    assert!(m.author.is_none());
+
+    let m = EpubMetadataOverride::new("Title", Some("Author".into())).unwrap();
+    assert_eq!(m.author.as_deref(), Some("Author"));
+}
 
 #[test]
 fn extract_novel_title_prefers_h1_over_title_tag() {
@@ -43,15 +96,15 @@ fn extract_author_strips_after_genre_marker() {
 #[test]
 fn extract_cover_image_url_finds_lazy_loaded_img() {
     let html = "<html><body><div class=\"book-img\"><img class=\"lazyloaded\" src=\"/cover.jpg\"></div></body></html>";
-    let url = extract_cover_image_url("https://truyenazz.me/foo/", html).unwrap();
-    assert_eq!(url, "https://truyenazz.me/cover.jpg");
+    let url = extract_cover_image_url("https://metruyenhotvn.com/foo/", html).unwrap();
+    assert_eq!(url, "https://metruyenhotvn.com/cover.jpg");
 }
 
 #[test]
 fn extract_cover_image_url_skips_data_uris() {
     let html = "<html><body><img src=\"data:image/png;base64,aaa\"><img class=\"lazyloaded\" src=\"/cover.jpg\"></body></html>";
-    let url = extract_cover_image_url("https://truyenazz.me/foo/", html).unwrap();
-    assert_eq!(url, "https://truyenazz.me/cover.jpg");
+    let url = extract_cover_image_url("https://metruyenhotvn.com/foo/", html).unwrap();
+    assert_eq!(url, "https://metruyenhotvn.com/cover.jpg");
 }
 
 #[test]
@@ -208,6 +261,75 @@ fn content_opf_includes_metadata_and_spine() {
 }
 
 #[tokio::test]
+async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
+    let mut server = mockito::Server::new_async().await;
+    // The page advertises different metadata; the override must win.
+    let main_html = r#"<html><body>
+  <h1>Extracted Title</h1>
+  Tác giả: Extracted Author Thể loại: Tu chân
+</body></html>"#;
+    let _main_mock = server
+        .mock("GET", "/foo/")
+        .with_status(200)
+        .with_body(main_html)
+        .create_async()
+        .await;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Hello.</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let returned = build_epub(BuildEpubParams {
+        novel_main_url: format!("{}/foo/", server.url()),
+        chapter_dir: chapter_dir.clone(),
+        output_epub: None,
+        font_path: None,
+        metadata_override: Some(EpubMetadataOverride {
+            title: "Override Title".to_string(),
+            author: Some("Override Author".to_string()),
+        }),
+    })
+    .await
+    .unwrap();
+
+    // Default filename derives from the overridden title + author.
+    assert_eq!(
+        returned.file_name().unwrap().to_string_lossy(),
+        "Override Title - Override Author.epub"
+    );
+
+    let bytes = tokio::fs::read(&returned).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut opf = String::new();
+    archive
+        .by_name("EPUB/content.opf")
+        .unwrap()
+        .read_to_string(&mut opf)
+        .unwrap();
+    assert!(
+        opf.contains("<dc:title>Override Title</dc:title>"),
+        "opf: {opf}"
+    );
+    assert!(
+        opf.contains("<dc:creator>Override Author</dc:creator>"),
+        "opf: {opf}"
+    );
+    assert!(!opf.contains("Extracted Title"));
+    assert!(!opf.contains("Extracted Author"));
+}
+
+#[tokio::test]
 async fn build_epub_produces_valid_zip_with_expected_entries() {
     let mut server = mockito::Server::new_async().await;
     let main_html = r#"<html><body>
@@ -242,6 +364,7 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
         font_path: None,
+        metadata_override: None,
     })
     .await
     .unwrap();
@@ -335,4 +458,73 @@ fn extract_novel_description_returns_none_when_missing() {
     assert!(extract_novel_description_from_main_page("<html></html>").is_none());
     let only_one_sibling = r#"<html><body><div class="content1"><div class="info"></div><p>only one</p></div></body></html>"#;
     assert!(extract_novel_description_from_main_page(only_one_sibling).is_none());
+}
+
+#[test]
+fn extract_novel_description_skips_empty_paragraph_between_marker_and_body() {
+    // metruyenhotvn.com renders an empty <p> between the "Thông tin chi tiết:"
+    // marker and the actual description body; the extractor must skip past
+    // empty siblings rather than returning the empty one as the description.
+    let html = "<html><body><div class=\"content1\"><div class=\"info\"></div>\
+        <p>Thông tin chi tiết:</p>\
+        <p></p>\
+        <p>real description</p></div></body></html>";
+    assert_eq!(
+        extract_novel_description_from_main_page(html).as_deref(),
+        Some("real description")
+    );
+}
+
+/// Locks in that the existing main-page selectors work on
+/// metruyenhotvn.com without changes — the unquoted-attribute
+/// difference is invisible to a real DOM parser.
+mod metruyenhot_regression {
+    use super::*;
+
+    /// Load the saved metruyenhot novel main-page fixture from disk.
+    fn fixture() -> String {
+        std::fs::read_to_string("tests/fixtures/metruyenhot_novel.html").unwrap()
+    }
+
+    #[test]
+    fn extract_novel_title_from_metruyenhot_main_page() {
+        let title = extract_novel_title_from_main_page(&fixture());
+        assert!(title.contains("Vô Địch Tiên Nhân"), "title was: {title}");
+    }
+
+    #[test]
+    fn extract_author_from_metruyenhot_main_page() {
+        let author = extract_author_from_main_page(&fixture()).expect("author present");
+        assert_eq!(author, "Tần Cấn");
+    }
+
+    #[test]
+    fn extract_novel_status_from_metruyenhot_main_page() {
+        let status = extract_novel_status_from_main_page(&fixture()).expect("status present");
+        assert_eq!(status, "Đang ra");
+    }
+
+    #[test]
+    fn extract_novel_description_from_metruyenhot_main_page() {
+        let desc =
+            extract_novel_description_from_main_page(&fixture()).expect("description present");
+        assert!(
+            desc.contains("bạn gái")
+                || desc.contains("Dương Bách Xuyên")
+                || desc.contains("công viên"),
+            "description was: {desc}"
+        );
+    }
+
+    #[test]
+    fn extract_cover_image_url_from_metruyenhot_main_page() {
+        let url =
+            extract_cover_image_url("https://metruyenhotvn.com/vo-dich-tien-nhan/", &fixture());
+        assert!(
+            url.as_deref()
+                .map(|u| u.starts_with("http"))
+                .unwrap_or(false),
+            "cover url: {url:?}"
+        );
+    }
 }

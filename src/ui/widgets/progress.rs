@@ -4,14 +4,15 @@ use crate::crawler::CrawlStatus;
 use crate::runner::ProgressEvent;
 
 /// One line of the rolling download log shown in the TUI.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DownloadLogEntry {
     /// Chapter was written to disk.
     Ok(u32),
     /// Chapter file already existed and was skipped.
     Skip(u32),
-    /// Chapter download failed.
-    Fail(u32),
+    /// Chapter download failed. Carries the chapter number and the error
+    /// message so the rolling log shows *why* it failed, not just that it did.
+    Fail(u32, String),
 }
 
 /// Default number of recent log entries kept for display.
@@ -73,10 +74,11 @@ impl DownloadProgress {
         self.push_log(entry);
     }
 
-    /// Record a failed chapter download.
-    pub fn record_failed(&mut self, number: u32) {
+    /// Record a failed chapter download. `message` is the runner-supplied
+    /// error text rendered alongside the chapter number in the TUI log.
+    pub fn record_failed(&mut self, number: u32, message: String) {
         self.failed += 1;
-        self.push_log(DownloadLogEntry::Fail(number));
+        self.push_log(DownloadLogEntry::Fail(number, message));
     }
 
     /// Mark the run as done so the TUI flips into "press Enter to continue" mode.
@@ -94,7 +96,7 @@ impl DownloadProgress {
         match event {
             ProgressEvent::Started { number, .. } => self.record_started(number),
             ProgressEvent::Completed { number, status } => self.record_completed(number, status),
-            ProgressEvent::Failed { number } => self.record_failed(number),
+            ProgressEvent::Failed { number, message } => self.record_failed(number, message),
         }
     }
 

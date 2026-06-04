@@ -5,8 +5,11 @@ use truyenazz_crawler::crawler::ExistingFilePolicy;
 
 #[test]
 fn parse_from_uses_defaults_when_only_base_url_given() {
-    let parsed = parse_from(["truyenazz-crawl", "https://truyenazz.me/foo"]).unwrap();
-    assert_eq!(parsed.base_url.as_deref(), Some("https://truyenazz.me/foo"));
+    let parsed = parse_from(["truyenazz-crawl", "https://metruyenhotvn.com/foo"]).unwrap();
+    assert_eq!(
+        parsed.base_url.as_deref(),
+        Some("https://metruyenhotvn.com/foo")
+    );
     assert_eq!(parsed.options.output_root, "output");
     assert_eq!(parsed.options.workers, 1);
     assert!(!parsed.options.epub);
@@ -25,7 +28,7 @@ fn parse_from_uses_defaults_when_only_base_url_given() {
 fn parse_from_accepts_full_flag_set() {
     let parsed = parse_from([
         "truyenazz-crawl",
-        "https://truyenazz.me/foo",
+        "https://metruyenhotvn.com/foo",
         "--start",
         "10",
         "--end",
@@ -145,4 +148,21 @@ fn validate_shared_options_accepts_parallel_workers_with_skip_policy() {
         ..CliOptions::default()
     };
     assert!(validate_shared_options(&opts).is_none());
+}
+
+#[test]
+fn parse_from_defaults_allow_any_host_to_false() {
+    let parsed = parse_from(["truyenazz-crawl", "https://metruyenhotvn.com/foo"]).unwrap();
+    assert!(!parsed.options.allow_any_host);
+}
+
+#[test]
+fn parse_from_accepts_allow_any_host_flag() {
+    let parsed = parse_from([
+        "truyenazz-crawl",
+        "https://metruyenhotvn.com/foo",
+        "--allow-any-host",
+    ])
+    .unwrap();
+    assert!(parsed.options.allow_any_host);
 }

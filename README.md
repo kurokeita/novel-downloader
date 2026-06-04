@@ -1,12 +1,21 @@
 # truyenazz-crawler
 
-Rust command-line crawler for truyenazz novels. It downloads chapter ranges as
-clean local HTML files and can package those saved chapters into an EPUB with
-metadata, cover image, and embedded font support.
+Rust command-line crawler for Vietnamese novel sites. It downloads chapter
+ranges as clean local HTML files and can package those saved chapters into an
+EPUB with metadata, cover image, and embedded font support.
+
+Supported hosts:
+
+- `metruyenhotvn.com`
+- `metruyenhotne.com`
+
+URLs from any other host are rejected with a clear error before any network
+fetch. The hidden `--allow-any-host` flag bypasses the check for local mock
+fixtures and integration tests; it is not intended for normal use.
 
 ## Features
 
-- Crawl one chapter or a chapter range from a truyenazz novel URL.
+- Crawl one chapter or a chapter range from a supported novel URL.
 - Automatically discover the latest available chapter when `--end` is omitted.
 - Save chapters under a per-novel output directory as `chapter_NNNN.html`.
 - Build an EPUB from newly crawled chapters or from an existing chapter folder.
@@ -29,13 +38,13 @@ cargo build --release
 Run the binary from Cargo:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --start 1 --end 10
+cargo run -- "https://metruyenhotvn.com/your-novel" --start 1 --end 10
 ```
 
 Or run the compiled binary:
 
 ```sh
-./target/release/truyenazz-crawl "https://truyenazz.me/your-novel" --start 1 --end 10
+./target/release/truyenazz-crawl "https://metruyenhotvn.com/your-novel" --start 1 --end 10
 ```
 
 Output is written to `output/<novel-slug>/chapter_NNNN.html` by default.
@@ -51,31 +60,31 @@ cargo run -- --interactive
 Crawl chapters and build an EPUB:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --start 1 --end 50 --epub
+cargo run -- "https://metruyenhotvn.com/your-novel" --start 1 --end 50 --epub
 ```
 
 Let the crawler discover the latest chapter:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --start 1 --epub
+cargo run -- "https://metruyenhotvn.com/your-novel" --start 1 --epub
 ```
 
 Use four parallel workers and skip files that already exist:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --start 1 --end 100 --workers 4 --if-exists skip
+cargo run -- "https://metruyenhotvn.com/your-novel" --start 1 --end 100 --workers 4 --if-exists skip
 ```
 
 Build an EPUB from an existing chapter directory:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --epub-only --chapter-dir output/your_novel
+cargo run -- "https://metruyenhotvn.com/your-novel" --epub-only --chapter-dir output/your_novel
 ```
 
 Embed a custom font in the EPUB:
 
 ```sh
-cargo run -- "https://truyenazz.me/your-novel" --epub --font-path /path/to/font.ttf
+cargo run -- "https://metruyenhotvn.com/your-novel" --epub --font-path /path/to/font.ttf
 ```
 
 ## CLI Options

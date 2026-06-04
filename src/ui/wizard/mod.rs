@@ -36,6 +36,8 @@ async fn advance_step(step: WizardStep, state: &mut WizardState) -> Result<StepR
         Mode => steps::step_mode(state),
         OutputRoot => steps::step_output_root(state),
         Discover => steps::step_discover(state).await,
+        Title => steps::step_title(state).await,
+        Author => steps::step_author(state),
         StartChapter => steps::step_start_chapter(state),
         EndChapter => steps::step_end_chapter(state),
         Workers => steps::step_workers(state),

@@ -55,6 +55,69 @@ fn extract_full_chapter_text_falls_back_to_default_titles() {
 }
 
 #[test]
+fn extract_full_chapter_text_filters_css_hidden_noise_paragraphs() {
+    // metruyenhot hides injected promo lines with a per-page rotating class
+    // (mshow-hb, mshow-bs, ms-b, ...) whose only commonality is a
+    // `display: none` rule in a <style> block. Drop any element carrying a
+    // class the page hides, regardless of the class name.
+    let html = r#"
+<html><head><style>
+  .mshow-hb { display: none; }
+  .rotating-xyz { color: red; display:none }
+</style></head><body>
+<div class="chapter-c">
+  <p>Đoạn thật một.</p>
+  <p class="mshow-hb">Lên google tìm kiếm từ khóa metruyenH0t để đọc...</p>
+  <p class="rotating-xyz">Bạn đang đọc truyện mới tại đâu đó.</p>
+  <p>Đoạn thật hai.</p>
+  <div><p class="rotating-xyz">Quảng cáo lồng trong div.</p><p>Đoạn thật ba.</p></div>
+</div>
+</body></html>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Đoạn thật một.", "Đoạn thật hai.", "Đoạn thật ba."]
+    );
+}
+
+#[test]
+fn extract_full_chapter_text_filters_display_none_nested_in_at_rule() {
+    // A display:none rule wrapped in an @media block must still be detected.
+    let html = r#"
+<html><head><style>
+  @media screen { .promo { display: none; } }
+</style></head><body>
+<div class="chapter-c">
+  <p>Đoạn thật.</p>
+  <p class="promo">Quảng cáo trong @media.</p>
+</div>
+</body></html>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(chapter.paragraphs, vec!["Đoạn thật."]);
+}
+
+#[test]
+fn extract_full_chapter_text_keeps_paragraphs_whose_class_is_not_hidden() {
+    // A class that exists in a <style> block but is NOT display:none must not
+    // be filtered — only display:none classes are noise markers.
+    let html = r#"
+<html><head><style>.fancy { color: navy; }</style></head><body>
+<div class="chapter-c">
+  <p class="fancy">Đoạn được tô màu nhưng vẫn hiển thị.</p>
+  <p>Đoạn thường.</p>
+</div>
+</body></html>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Đoạn được tô màu nhưng vẫn hiển thị.", "Đoạn thường."]
+    );
+}
+
+#[test]
 fn extract_full_chapter_text_dedupes_consecutive_lines() {
     let html = r#"
 <div class="chapter-c">
@@ -92,6 +155,36 @@ fn extract_full_chapter_text_extracts_injected_backup_content() {
 }
 
 #[test]
+fn extract_full_chapter_text_injects_at_content_metruyenhot_host() {
+    // Newer metruyenhot pages drop the data-content-truyen-backup div and
+    // instead inject contentS into a shadow-DOM host <div
+    // id="content-metruyenhot">. The hidden paragraph's text lives in a
+    // random custom attribute (rendered via ::before { content: attr(...) }),
+    // so it is recovered through the attribute fallback.
+    let injected = "var contentS = '<p class=\"hvtsoigr8\" onmousedown=\"return false\" \
+                    wkzclgqthe=\"Người trong nhà? Hắn xứng sao?\"></p>'; div.";
+    let injected = format!("{}innerHTML = contentS;", injected);
+    let html = format!(
+        r#"
+<html><body>
+  <div class="chapter-c">
+    <p>Mở đầu.</p>
+    <div id="content-metruyenhot"></div>
+    <p>Kết thúc.</p>
+  </div>
+  <script>{}</script>
+</body></html>
+"#,
+        injected
+    );
+    let chapter = extract_full_chapter_text(&html).unwrap();
+    assert_eq!(
+        chapter.paragraphs,
+        vec!["Mở đầu.", "Người trong nhà? Hắn xứng sao?", "Kết thúc."]
+    );
+}
+
+#[test]
 fn extract_full_chapter_text_errors_when_chapter_div_missing() {
     let html = "<html><body><p>nothing</p></body></html>";
     let err = extract_full_chapter_text(html).unwrap_err();
@@ -118,75 +211,216 @@ fn build_html_document_renders_chapter_title_as_h1() {
 }
 
 #[tokio::test]
-async fn discover_last_chapter_number_parses_latest_section() {
+async fn discover_last_chapter_number_follows_pagination_nexts() {
     let mut server = mockito::Server::new_async().await;
-    let html = r#"
-<html><body>
-  <h3>Mục Lục</h3>
-  <div><ul><li><a href="/foo/chuong-1/">c1</a></li></ul></div>
-  <div>
-    <h3>Chương Mới Nhất</h3>
-  </div>
-  <div>
-    <ul>
-      <li><a href="/foo/chuong-100/">c100</a></li>
-      <li><a href="/foo/chuong-101/">c101</a></li>
-      <li><a href="/foo/chuong-102/">c102</a></li>
-    </ul>
-  </div>
-</body></html>
-"#;
+    let main_url = format!("{}/foo/", server.url());
+    let last_page_url = format!("{}/foo?page=48", server.url());
+    let main_html = format!(
+        r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-1/">c1</a></li>
+    <li><a href="/foo/chuong-50/">c50</a></li>
+  </ul>
+  <div class="pagination"><ul>
+    <li class="active"><a href="javascript:void(0)">1</a></li>
+    <li><a href="{last_page_url}">48</a></li>
+    <li class="next"><a href="{}/foo?page=2"></a></li>
+    <li class="nexts"><a href="{last_page_url}"></a></li>
+  </ul></div>
+</body></html>"#,
+        server.url()
+    );
+    let last_html = r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-2351/">c2351</a></li>
+    <li><a href="/foo/chuong-2376/">c2376</a></li>
+  </ul>
+</body></html>"#;
+    let _m1 = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    let _m2 = server
+        .mock("GET", "/foo?page=48")
+        .with_body(last_html)
+        .create_async()
+        .await;
+    let last = discover_last_chapter_number(main_url.trim_end_matches('/'))
+        .await
+        .unwrap();
+    assert_eq!(last, 2376);
+}
+
+#[tokio::test]
+async fn discover_last_chapter_number_falls_back_to_main_when_no_pagination() {
+    let mut server = mockito::Server::new_async().await;
+    let html = r#"<html><body>
+  <ul>
+    <li><a href="/foo/chuong-1/">c1</a></li>
+    <li><a href="/foo/chuong-7/">c7</a></li>
+    <li><a href="/foo/chuong-3/">c3</a></li>
+  </ul>
+</body></html>"#;
     let _mock = server
         .mock("GET", "/foo/")
-        .with_status(200)
         .with_body(html)
         .create_async()
         .await;
     let last = discover_last_chapter_number(&format!("{}/foo", server.url()))
         .await
         .unwrap();
-    assert_eq!(last, 102);
+    assert_eq!(last, 7);
 }
 
 #[tokio::test]
-async fn discover_last_chapter_number_errors_when_section_missing() {
+async fn discover_last_chapter_number_falls_back_to_main_when_last_page_has_no_chapters() {
+    // Pagination link is present, but the fetched last page yields no chuong
+    // links; discovery must fall back to the main page's max rather than fail.
+    let mut server = mockito::Server::new_async().await;
+    let last_page_url = format!("{}/foo?page=9", server.url());
+    let main_html = format!(
+        r#"<html><body>
+  <ul><li><a href="/foo/chuong-12/">c12</a></li></ul>
+  <div class="pagination"><ul>
+    <li class="nexts"><a href="{last_page_url}"></a></li>
+  </ul></div>
+</body></html>"#
+    );
+    let _m1 = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    let _m2 = server
+        .mock("GET", "/foo?page=9")
+        .with_body("<html><body><p>no chapters here</p></body></html>")
+        .create_async()
+        .await;
+    let last = discover_last_chapter_number(&format!("{}/foo", server.url()))
+        .await
+        .unwrap();
+    assert_eq!(last, 12);
+}
+
+#[tokio::test]
+async fn discover_last_chapter_number_errors_when_no_chuong_links() {
     let mut server = mockito::Server::new_async().await;
     let _mock = server
         .mock("GET", "/foo/")
-        .with_status(200)
-        .with_body("<html></html>")
+        .with_body("<html><body><p>nothing here</p></body></html>")
         .create_async()
         .await;
     let err = discover_last_chapter_number(&format!("{}/foo", server.url()))
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("Chương Mới Nhất"));
+    assert!(err.to_string().contains("chapter"), "got: {err}");
 }
 
 #[test]
-fn discover_last_chapter_number_from_html_parses_pure_html() {
-    let html = r#"
-<html><body>
-  <h3>Mục Lục</h3>
-  <div><ul><li><a href="/foo/chuong-1/">c1</a></li></ul></div>
-  <div>
-    <h3>Chương Mới Nhất</h3>
-  </div>
-  <div>
-    <ul>
-      <li><a href="/foo/chuong-50/">c50</a></li>
-      <li><a href="/foo/chuong-51/">c51</a></li>
-    </ul>
-  </div>
-</body></html>
-"#;
-    let n = discover_last_chapter_number_from_html(html, "https://truyenazz.me/foo/").unwrap();
-    assert_eq!(n, 51);
+fn discover_last_chapter_number_from_html_returns_max_chuong() {
+    let html = r#"<html><body>
+  <a href="/foo/chuong-1/">c1</a>
+  <a href="/foo/chuong-9/">c9</a>
+  <a href="/foo/chuong-3/">c3</a>
+</body></html>"#;
+    let n = discover_last_chapter_number_from_html(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(n, 9);
 }
 
 #[test]
-fn discover_last_chapter_number_from_html_errors_on_missing_section() {
+fn discover_last_chapter_number_from_html_errors_when_no_chuong_links() {
     let err =
         discover_last_chapter_number_from_html("<html></html>", "https://x/foo/").unwrap_err();
-    assert!(err.to_string().contains("Chương Mới Nhất"));
+    assert!(err.to_string().to_lowercase().contains("chuong"));
+}
+
+#[test]
+fn find_last_page_url_resolves_relative_href_against_main_url() {
+    use truyenazz_crawler::crawler::find_last_page_url;
+    let html = r#"<html><body><div class="pagination"><ul>
+        <li class="nexts"><a href="?page=48"></a></li>
+    </ul></div></body></html>"#;
+    let u = find_last_page_url(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(u, "https://metruyenhotvn.com/foo/?page=48");
+}
+
+#[test]
+fn find_last_page_url_returns_none_for_single_page_chapter_list() {
+    use truyenazz_crawler::crawler::find_last_page_url;
+    let html = r#"<html><body><a href="/foo/chuong-1/">c1</a></body></html>"#;
+    assert!(find_last_page_url(html, "https://metruyenhotvn.com/foo/").is_none());
+}
+
+#[test]
+fn max_chapter_in_html_ignores_chuong_links_under_a_different_novel_slug() {
+    // A chuong link whose path does not start with the novel's own slug is
+    // rejected — that's a link to a different novel listed on the same page.
+    use truyenazz_crawler::crawler::max_chapter_in_html;
+    let html = r#"<html><body>
+        <a href="/different-novel/chuong-9999/">other novel</a>
+        <a href="/foo/chuong-42/">c42</a>
+    </body></html>"#;
+    let n = max_chapter_in_html(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(n, 42);
+}
+
+#[test]
+fn max_chapter_in_html_accepts_chuong_links_on_any_host_with_matching_slug() {
+    // metruyenhotvn.com's paginated pages legitimately render chuong hrefs
+    // on a sibling host (metruyenhotne.com) while keeping the novel slug
+    // intact. As long as the slug matches, accept any host.
+    use truyenazz_crawler::crawler::max_chapter_in_html;
+    let html = r#"<html><body>
+        <a href="https://metruyenhotne.com/foo/chuong-2351/">c2351</a>
+        <a href="https://metruyenhotne.com/foo/chuong-2376/">c2376</a>
+    </body></html>"#;
+    let n = max_chapter_in_html(html, "https://metruyenhotvn.com/foo/").unwrap();
+    assert_eq!(n, 2376);
+}
+
+/// Locks in that `extract_full_chapter_text` works on metruyenhotvn.com
+/// chapter HTML without any site-specific branching — the parser is already
+/// template-compatible across hosts.
+#[test]
+fn extract_full_chapter_text_handles_metruyenhot_chapter_fixture() {
+    use truyenazz_crawler::crawler::extract_full_chapter_text;
+    let html = std::fs::read_to_string("tests/fixtures/metruyenhot_chapter.html").unwrap();
+    let content = extract_full_chapter_text(&html).expect("parser should accept metruyenhot");
+    assert!(
+        content.novel_title.contains("Vô Địch Tiên Nhân"),
+        "novel title: {}",
+        content.novel_title
+    );
+    assert!(
+        content.chapter_title.contains("Chương 1"),
+        "chapter title: {}",
+        content.chapter_title
+    );
+    assert!(
+        content.paragraphs.len() >= 5,
+        "expected at least 5 paragraphs, got {}",
+        content.paragraphs.len()
+    );
+    // No hidden promo/noise paragraph may leak into the extracted content.
+    for p in &content.paragraphs {
+        assert!(
+            !p.contains("Bạn đang đọc") && !p.contains("Lên google"),
+            "promo noise leaked into content: {p}"
+        );
+    }
+}
+
+/// Locks in that `discover_last_chapter_number_from_html` returns the highest
+/// `chuong-N` link found on a real metruyenhotvn.com novel page.
+#[test]
+fn discover_last_chapter_number_handles_metruyenhot_novel_fixture() {
+    use truyenazz_crawler::crawler::discover_last_chapter_number_from_html;
+    let html = std::fs::read_to_string("tests/fixtures/metruyenhot_novel.html").unwrap();
+    let n = discover_last_chapter_number_from_html(
+        &html,
+        "https://metruyenhotvn.com/vo-dich-tien-nhan/",
+    )
+    .expect("discovery should accept metruyenhot");
+    assert!(n >= 100, "expected a sizeable chapter count, got {n}");
 }
