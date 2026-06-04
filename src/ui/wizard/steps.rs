@@ -93,23 +93,29 @@ pub(super) fn step_mode(state: &mut WizardState) -> Result<StepResult> {
     })
 }
 
-/// Output root prompt.
+/// Output root prompt. Offers path autocomplete and creates the directory
+/// (and any missing parents) when it does not exist yet.
 pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
-    let outcome = run_text_prompt(
+    let outcome = run_path_prompt(
         "Output root",
-        "Where should chapter files (and the EPUB) be saved?",
+        "Where should chapter files (and the EPUB) be saved? Tab to autocomplete.",
         Some(state.output_root.to_string_lossy().into_owned()),
-        None,
-        Some(Box::new(|v| {
-            if v.trim().is_empty() {
-                Some("Enter an output directory.".into())
-            } else {
-                None
-            }
-        })),
     )?;
     advance_or_back!(outcome, WizardStep::Mode, |value| {
-        state.output_root = PathBuf::from(expand_tilde(value.trim()).as_ref());
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            show_note("Output root", "Enter an output directory.")?;
+            return Ok(StepResult::Next(WizardStep::OutputRoot));
+        }
+        let path = PathBuf::from(expand_tilde(trimmed).as_ref());
+        if let Err(error) = std::fs::create_dir_all(&path) {
+            show_note(
+                "Output root",
+                &format!("Could not create {}:\n{error}", path.display()),
+            )?;
+            return Ok(StepResult::Next(WizardStep::OutputRoot));
+        }
+        state.output_root = path;
         let next = if state.mode == CrawlMode::EpubOnly {
             WizardStep::ChapterDir
         } else {
@@ -333,15 +339,13 @@ pub(super) fn step_if_exists(state: &mut WizardState) -> Result<StepResult> {
 
 /// Chapter directory prompt — only used in `EpubOnly` mode.
 pub(super) fn step_chapter_dir(state: &mut WizardState) -> Result<StepResult> {
-    let outcome = run_text_prompt(
+    let outcome = run_path_prompt(
         "Chapter directory",
-        "Path to the existing chapter directory.",
+        "Path to the existing chapter directory. Tab to autocomplete.",
         state
             .chapter_dir
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
-        None,
-        None,
     )?;
     advance_or_back!(outcome, WizardStep::OutputRoot, |value| {
         state.chapter_dir = Some(PathBuf::from(expand_tilde(value.trim()).as_ref()));
