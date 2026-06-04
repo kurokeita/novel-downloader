@@ -102,7 +102,7 @@ The tag must match `v*` (the workflow trigger) and the bumped crate version.
 Watch it:
 
 ```bash
-gh run watch (gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
 gh release view vX.Y.Z
 ```
 
