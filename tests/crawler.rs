@@ -82,6 +82,23 @@ fn extract_full_chapter_text_filters_css_hidden_noise_paragraphs() {
 }
 
 #[test]
+fn extract_full_chapter_text_filters_display_none_nested_in_at_rule() {
+    // A display:none rule wrapped in an @media block must still be detected.
+    let html = r#"
+<html><head><style>
+  @media screen { .promo { display: none; } }
+</style></head><body>
+<div class="chapter-c">
+  <p>Đoạn thật.</p>
+  <p class="promo">Quảng cáo trong @media.</p>
+</div>
+</body></html>
+"#;
+    let chapter = extract_full_chapter_text(html).unwrap();
+    assert_eq!(chapter.paragraphs, vec!["Đoạn thật."]);
+}
+
+#[test]
 fn extract_full_chapter_text_keeps_paragraphs_whose_class_is_not_hidden() {
     // A class that exists in a <style> block but is NOT display:none must not
     // be filtered — only display:none classes are noise markers.
@@ -257,6 +274,36 @@ async fn discover_last_chapter_number_falls_back_to_main_when_no_pagination() {
 }
 
 #[tokio::test]
+async fn discover_last_chapter_number_falls_back_to_main_when_last_page_has_no_chapters() {
+    // Pagination link is present, but the fetched last page yields no chuong
+    // links; discovery must fall back to the main page's max rather than fail.
+    let mut server = mockito::Server::new_async().await;
+    let last_page_url = format!("{}/foo?page=9", server.url());
+    let main_html = format!(
+        r#"<html><body>
+  <ul><li><a href="/foo/chuong-12/">c12</a></li></ul>
+  <div class="pagination"><ul>
+    <li class="nexts"><a href="{last_page_url}"></a></li>
+  </ul></div>
+</body></html>"#
+    );
+    let _m1 = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    let _m2 = server
+        .mock("GET", "/foo?page=9")
+        .with_body("<html><body><p>no chapters here</p></body></html>")
+        .create_async()
+        .await;
+    let last = discover_last_chapter_number(&format!("{}/foo", server.url()))
+        .await
+        .unwrap();
+    assert_eq!(last, 12);
+}
+
+#[tokio::test]
 async fn discover_last_chapter_number_errors_when_no_chuong_links() {
     let mut server = mockito::Server::new_async().await;
     let _mock = server
@@ -355,10 +402,17 @@ fn extract_full_chapter_text_handles_metruyenhot_chapter_fixture() {
         "expected at least 5 paragraphs, got {}",
         content.paragraphs.len()
     );
+    // No hidden promo/noise paragraph may leak into the extracted content.
+    for p in &content.paragraphs {
+        assert!(
+            !p.contains("Bạn đang đọc") && !p.contains("Lên google"),
+            "promo noise leaked into content: {p}"
+        );
+    }
 }
 
-/// Locks in that the existing `Chương Mới Nhất` sibling walk works on
-/// metruyenhotvn.com novel HTML.
+/// Locks in that `discover_last_chapter_number_from_html` returns the highest
+/// `chuong-N` link found on a real metruyenhotvn.com novel page.
 #[test]
 fn discover_last_chapter_number_handles_metruyenhot_novel_fixture() {
     use truyenazz_crawler::crawler::discover_last_chapter_number_from_html;

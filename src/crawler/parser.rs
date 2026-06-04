@@ -50,8 +50,9 @@ fn element_text(elem: &ElementRef<'_>) -> String {
 }
 
 /// Matches one CSS rule: a selector list, then a `{ ... }` declaration block.
-/// Used to find rules that hide elements via `display: none`.
-static CSS_RULE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)([^{}]+)\{([^}]*)\}").unwrap());
+/// Both groups exclude braces so the match lands on the innermost rule, which
+/// keeps it working for rules nested inside at-rules (e.g. `@media`).
+static CSS_RULE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)([^{}]*)\{([^{}]*)\}").unwrap());
 
 /// Matches a `.class-name` token inside a CSS selector.
 static CSS_CLASS_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\.([A-Za-z0-9_-]+)").unwrap());
