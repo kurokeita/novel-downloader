@@ -50,9 +50,15 @@ async fn build_non_interactive_plan(
     let mut chapter_numbers: Option<Vec<u32>> = None;
     let mut chapters: Vec<ChapterRef> = Vec::new();
 
-    // Fetched even for `--epub-only`: the EPUB writer takes its metadata from
-    // here rather than reading the main page itself.
-    let novel = adapter.fetch_novel(&base_url).await?;
+    // The EPUB writer takes its metadata from here rather than reading the main
+    // page itself, so `--epub-only` needs a fetch too - but only the cheap
+    // metadata one. Walking the chapter index would make packaging an existing
+    // directory fail whenever the site's chapter listing is unreachable.
+    let novel = if options.epub_only {
+        adapter.fetch_metadata(&base_url).await?
+    } else {
+        adapter.fetch_novel(&base_url).await?
+    };
     let novel_title = Some(novel.title.clone());
     let novel_author = novel.author.clone();
     let novel_cover_url = novel.cover_url.clone();
@@ -504,8 +510,9 @@ async fn execute_plan(
         let novel_author = plan.novel_author.clone();
         let cover_url = plan.novel_cover_url.clone();
         // In interactive mode the wizard collected (and let the user edit) the
-        // title/author, so pass them through verbatim. Non-interactive runs
-        // leave this `None` and let `build_epub` extract from the page.
+        // title/author, so pass them through verbatim as an explicit override.
+        // Non-interactive runs leave this `None`; the title and author already
+        // on `BuildEpubParams` are then used as-is.
         let metadata_override = if interactive {
             plan.novel_title
                 .clone()
