@@ -18,11 +18,12 @@ use novel_downloader::runner::{
     crawl_chapters_sequential,
 };
 use novel_downloader::sites::validate_url;
+use novel_downloader::source::ChapterRef;
 use novel_downloader::ui::{
     CrawlMode, DownloadProgress, InteractivePlan, make_tui_progress_callback, run_download_screen,
     run_interactive_flow,
 };
-use novel_downloader::utils::{fetch_html, slugify};
+use novel_downloader::utils::{chapter_index, fetch_html, slugify};
 
 /// Non-TUI prompt for existing chapter files. Reads a line from stdin and
 /// maps r/s/a to the [`ExistingChapterDecision`] variants. Defaults to Skip
@@ -183,15 +184,14 @@ async fn infer_chapter_dir(base_url: &str, output_root: &std::path::Path) -> Res
 /// Drive a chapter run with an indicatif progress bar (non-interactive mode).
 async fn run_with_indicatif(
     plan: &InteractivePlan,
-    chapters: Vec<u32>,
+    chapters: Vec<ChapterRef>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
 ) -> Result<novel_downloader::runner::RunnerOutcome, i32> {
     let bar = build_progress_bar(chapters.len() as u64);
     let progress = make_progress_callback(bar.clone());
     let outcome = if plan.workers <= 1 {
         crawl_chapters_sequential(SequentialParams {
-            chapter_numbers: chapters,
-            base_url: plan.base_url.clone(),
+            chapters,
             output_root: plan.output_root.clone(),
             if_exists: plan.if_exists,
             delay: plan.delay,
@@ -208,8 +208,7 @@ async fn run_with_indicatif(
             return Err(1);
         }
         crawl_chapters_parallel(ParallelParams {
-            chapter_numbers: chapters,
-            base_url: plan.base_url.clone(),
+            chapters,
             output_root: plan.output_root.clone(),
             if_exists: plan.if_exists,
             workers: plan.workers,
@@ -231,7 +230,7 @@ async fn run_with_indicatif(
 /// the bare terminal never flashes between TUI screens.
 async fn run_with_tui(
     plan: &InteractivePlan,
-    chapters: Vec<u32>,
+    chapters: Vec<ChapterRef>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
     wait_for_user: bool,
 ) -> Result<novel_downloader::runner::RunnerOutcome, i32> {
@@ -248,8 +247,7 @@ async fn run_with_tui(
     let task = tokio::spawn(async move {
         if plan_clone.workers <= 1 {
             crawl_chapters_sequential(SequentialParams {
-                chapter_numbers: chapters,
-                base_url: plan_clone.base_url.clone(),
+                chapters,
                 output_root: plan_clone.output_root.clone(),
                 if_exists: plan_clone.if_exists,
                 delay: plan_clone.delay,
@@ -261,8 +259,7 @@ async fn run_with_tui(
             .await
         } else {
             crawl_chapters_parallel(ParallelParams {
-                chapter_numbers: chapters,
-                base_url: plan_clone.base_url.clone(),
+                chapters,
                 output_root: plan_clone.output_root.clone(),
                 if_exists: plan_clone.if_exists,
                 workers: plan_clone.workers,
@@ -365,18 +362,19 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
             },
         };
     } else {
-        let chapters = plan.chapter_numbers.clone().unwrap_or_default();
+        let numbers = plan.chapter_numbers.clone().unwrap_or_default();
         if !interactive {
-            if let (Some(first), Some(last)) = (chapters.first(), chapters.last()) {
+            if let (Some(first), Some(last)) = (numbers.first(), numbers.last()) {
                 println!(
                     "[INFO] Downloading chapters {} -> {} ({} chapters)",
                     first,
                     last,
-                    chapters.len()
+                    numbers.len()
                 );
             }
             println!("[INFO] Using {} worker(s)", plan.workers);
         }
+        let chapters = chapter_index(&plan.base_url, &numbers);
 
         let outcome = if interactive {
             // Skip the post-download "press Enter" wait when an EPUB build
@@ -432,7 +430,8 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                     return 2;
                 }
                 FailureAction::Retry => {
-                    let retry_chapters: Vec<u32> = failures.iter().map(|(n, _)| *n).collect();
+                    let retry_numbers: Vec<u32> = failures.iter().map(|(n, _)| *n).collect();
+                    let retry_chapters = chapter_index(&plan.base_url, &retry_numbers);
                     let mut retry_plan = plan.clone();
                     retry_plan.if_exists = ExistingFilePolicy::Overwrite;
                     let outcome = if interactive {

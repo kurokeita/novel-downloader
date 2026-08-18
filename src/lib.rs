@@ -4,5 +4,6 @@ pub mod epub;
 pub mod font;
 pub mod runner;
 pub mod sites;
+pub mod source;
 pub mod ui;
 pub mod utils;

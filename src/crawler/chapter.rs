@@ -1,9 +1,7 @@
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
 
-use crate::utils::{
-    build_chapter_url, ensure_dir, fetch_html, file_exists, sleep_seconds, slugify,
-};
+use crate::utils::{ensure_dir, fetch_html, file_exists, sleep_seconds, slugify};
 
 use super::parser::{build_html_document, extract_full_chapter_text};
 use super::types::{
@@ -90,8 +88,7 @@ async fn save_chapter_file(
 /// when the destination already exists.
 pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult> {
     let CrawlChapterParams {
-        base_url,
-        chapter_number,
+        chapter,
         output_root,
         if_exists,
         existing_policy,
@@ -102,7 +99,7 @@ pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult
     } = params;
 
     if fast_skip && let Some(title) = novel_title {
-        let (output_dir, output_path) = chapter_output_path(output_root, title, chapter_number);
+        let (output_dir, output_path) = chapter_output_path(output_root, title, chapter.number);
         let action =
             resolve_existing_file_action(&output_path, if_exists, existing_policy, &*prompt).await;
         let status = match action {
@@ -120,24 +117,24 @@ pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult
         }
     }
 
-    let url = build_chapter_url(base_url, chapter_number);
-    let full_html = fetch_html(&url).await?;
-    let chapter = extract_full_chapter_text(&full_html)?;
+    let url = &chapter.locator;
+    let full_html = fetch_html(url).await?;
+    let parsed = extract_full_chapter_text(&full_html)?;
 
-    if chapter.paragraphs.is_empty() {
+    if parsed.paragraphs.is_empty() {
         return Err(anyhow!("No chapter content extracted from {url}"));
     }
 
     let html_doc = build_html_document(
-        &chapter.novel_title,
-        &chapter.chapter_title,
-        &chapter.paragraphs,
+        &parsed.novel_title,
+        &parsed.chapter_title,
+        &parsed.paragraphs,
     );
 
     let (output_dir, output_path, status) = save_chapter_file(
         output_root,
-        &chapter.novel_title,
-        chapter_number,
+        &parsed.novel_title,
+        chapter.number,
         &html_doc,
         if_exists,
         existing_policy,
@@ -150,7 +147,7 @@ pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult
     }
 
     Ok(CrawlResult {
-        novel_title: chapter.novel_title,
+        novel_title: parsed.novel_title,
         output_dir,
         output_path,
         status,

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::crawler::{
     CrawlChapterParams, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, crawl_chapter,
 };
+use crate::source::ChapterRef;
 
 /// One observable progress event emitted by the runners. Consumers (CLI
 /// progress bar, TUI progress widget, log printer) receive a stream of these.
@@ -40,10 +41,9 @@ pub struct RunnerOutcome {
 
 /// Inputs to [`crawl_chapters_sequential`].
 pub struct SequentialParams {
-    /// Chapter numbers to fetch in order.
-    pub chapter_numbers: Vec<u32>,
-    /// Novel base URL (no trailing slash required).
-    pub base_url: String,
+    /// Chapters to fetch, in order. A `--start`/`--end` range is a slice of
+    /// the novel's chapter index rather than a computed number sequence.
+    pub chapters: Vec<ChapterRef>,
     /// Root directory for the per-novel output folder.
     pub output_root: PathBuf,
     /// Per-call existing-file policy. The runner additionally promotes the
@@ -72,8 +72,7 @@ fn emit(progress: &Option<ProgressCallback>, event: ProgressEvent) {
 /// suppress prompts on subsequent existing chapters.
 pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcome {
     let SequentialParams {
-        chapter_numbers,
-        base_url,
+        chapters,
         output_root,
         if_exists,
         delay,
@@ -86,9 +85,10 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
     let mut output_dir: Option<PathBuf> = None;
     let mut existing_policy = ExistingFilePolicy::Ask;
     let mut failures: Vec<(u32, String)> = Vec::new();
-    let total = chapter_numbers.len() as u32;
+    let total = chapters.len() as u32;
 
-    for chapter_number in chapter_numbers {
+    for chapter in chapters {
+        let chapter_number = chapter.number;
         emit(
             &progress,
             ProgressEvent::Started {
@@ -97,8 +97,7 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
             },
         );
         let result = crawl_chapter(CrawlChapterParams {
-            base_url: &base_url,
-            chapter_number,
+            chapter: &chapter,
             output_root: &output_root,
             if_exists,
             existing_policy,
@@ -147,11 +146,9 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
 
 /// Inputs to [`crawl_chapters_parallel`].
 pub struct ParallelParams {
-    /// Chapter numbers to fetch (order is not preserved across workers, but
+    /// Chapters to fetch (order is not preserved across workers, but
     /// failures are sorted on return).
-    pub chapter_numbers: Vec<u32>,
-    /// Novel base URL.
-    pub base_url: String,
+    pub chapters: Vec<ChapterRef>,
     /// Output root directory.
     pub output_root: PathBuf,
     /// Per-call existing-file policy. Must NOT be `Ask` when running in
@@ -174,8 +171,7 @@ pub struct ParallelParams {
 /// workers. Failures are returned sorted by chapter number.
 pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
     let ParallelParams {
-        chapter_numbers,
-        base_url,
+        chapters,
         output_root,
         if_exists,
         workers,
@@ -185,13 +181,12 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
         progress,
     } = params;
 
-    let total = chapter_numbers.len() as u32;
-    let queue = Arc::new(tokio::sync::Mutex::new(VecDeque::from(chapter_numbers)));
+    let total = chapters.len() as u32;
+    let queue = Arc::new(tokio::sync::Mutex::new(VecDeque::from(chapters)));
     let output_dir: Arc<tokio::sync::Mutex<Option<PathBuf>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let failures: Arc<tokio::sync::Mutex<Vec<(u32, String)>>> =
         Arc::new(tokio::sync::Mutex::new(Vec::new()));
-    let base_url = Arc::new(base_url);
     let output_root = Arc::new(output_root);
     let novel_title = Arc::new(novel_title);
 
@@ -200,7 +195,6 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
         let queue = Arc::clone(&queue);
         let output_dir = Arc::clone(&output_dir);
         let failures = Arc::clone(&failures);
-        let base_url = Arc::clone(&base_url);
         let output_root = Arc::clone(&output_root);
         let novel_title = Arc::clone(&novel_title);
         let prompt = Arc::clone(&prompt);
@@ -208,10 +202,11 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
 
         handles.push(tokio::spawn(async move {
             loop {
-                let chapter_number = match queue.lock().await.pop_front() {
-                    Some(n) => n,
+                let chapter = match queue.lock().await.pop_front() {
+                    Some(c) => c,
                     None => break,
                 };
+                let chapter_number = chapter.number;
 
                 emit(
                     &progress,
@@ -221,8 +216,7 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                     },
                 );
                 let result = crawl_chapter(CrawlChapterParams {
-                    base_url: base_url.as_str(),
-                    chapter_number,
+                    chapter: &chapter,
                     output_root: output_root.as_path(),
                     if_exists,
                     existing_policy: ExistingFilePolicy::Ask,
