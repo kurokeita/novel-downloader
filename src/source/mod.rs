@@ -127,6 +127,13 @@ pub trait SiteAdapter: Send + Sync {
     /// a slice of it, never a computed sequence of URLs.
     async fn fetch_novel(&self, url: &str) -> SourceResult<Novel>;
 
+    /// Resolve a novel main-page URL into metadata alone, leaving
+    /// [`Novel::chapters`] empty. Required rather than defaulted to
+    /// [`SiteAdapter::fetch_novel`] on purpose: `--epub-only` packages a
+    /// directory that already exists and must not fail when the chapter index
+    /// is unreachable, so every adapter has to answer for the cheap path.
+    async fn fetch_metadata(&self, url: &str) -> SourceResult<Novel>;
+
     /// Fetch and parse one chapter named by a ref this adapter produced.
     async fn fetch_chapter(&self, chapter: &ChapterRef) -> SourceResult<ChapterContent>;
 }

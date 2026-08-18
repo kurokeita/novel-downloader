@@ -1,11 +1,13 @@
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::crawler::{
-    CrawlChapterParams, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, crawl_chapter,
+    CrawlChapterParams, CrawlResult, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy,
+    crawl_chapter,
 };
-use crate::source::{ChapterRef, SiteAdapter};
+use crate::source::{ChapterRef, RatePolicy, SiteAdapter, SourceError};
 
 /// One observable progress event emitted by the runners. Consumers (CLI
 /// progress bar, TUI progress widget, log printer) receive a stream of these.
@@ -20,6 +22,18 @@ pub enum ProgressEvent {
     /// pushed onto the outcome's `failures` list — surfaced live so users
     /// see *why* a chapter failed without waiting for the run to finish.
     Failed { number: u32, message: String },
+    /// The source's rate policy capped this run below the requested worker
+    /// count. Run-scoped rather than chapter-keyed, and emitted once before
+    /// the first chapter starts, so the user learns why `--workers` was not
+    /// honored.
+    ConcurrencyClamped {
+        /// Workers the user asked for.
+        requested: usize,
+        /// Workers actually started.
+        effective: usize,
+        /// Adapter id whose policy imposed the cap.
+        source: &'static str,
+    },
 }
 
 /// Type alias for a thread-safe progress callback.
@@ -71,6 +85,94 @@ fn emit(progress: &Option<ProgressCallback>, event: ProgressEvent) {
     }
 }
 
+/// Run-wide request pacing: a single "not before" instant every worker
+/// respects. `min_delay` spaces requests out, and a rate-limit backoff pushes
+/// that instant forward so the whole run slows down rather than the one
+/// chapter that happened to be refused — rate limiters are per client.
+struct Pacer {
+    /// Earliest instant at which the next request may leave.
+    next_allowed: tokio::sync::Mutex<Instant>,
+    /// Minimum spacing the source's policy asks for.
+    min_delay: Duration,
+}
+
+impl Pacer {
+    /// A pacer enforcing `min_delay` between requests, open immediately.
+    fn new(min_delay: Duration) -> Self {
+        Self {
+            next_allowed: tokio::sync::Mutex::new(Instant::now()),
+            min_delay,
+        }
+    }
+
+    /// Wait for this request's turn, then reserve the following slot. The
+    /// gate is deliberately held across the sleep: `min_delay` is global
+    /// spacing between requests, not a per-worker pause.
+    async fn wait_turn(&self) {
+        let mut next = self.next_allowed.lock().await;
+        let now = Instant::now();
+        if *next > now {
+            tokio::time::sleep(*next - now).await;
+        }
+        *next = Instant::now() + self.min_delay;
+    }
+
+    /// Push every worker's next turn back by `delay` after a rate-limited
+    /// answer, never bringing an already-later instant forward.
+    async fn back_off(&self, delay: Duration) {
+        let mut next = self.next_allowed.lock().await;
+        *next = (*next).max(Instant::now() + delay);
+    }
+}
+
+/// Describe a chapter failure for the failures list and the progress event.
+/// Rate limiting and missing entitlement get their own wording so they do not
+/// read like an ordinary transport error.
+fn describe_failure(error: &anyhow::Error, retries_spent: u32) -> String {
+    match error.downcast_ref::<SourceError>() {
+        Some(SourceError::RateLimited {
+            source_name,
+            message,
+        }) => format!(
+            "rate limited by {source_name}, giving up after {retries_spent} retries: {message}"
+        ),
+        Some(SourceError::Unentitled(what)) => {
+            format!("not available to this client: {what}")
+        }
+        _ => error.to_string(),
+    }
+}
+
+/// Crawl one chapter through the shared pacer, retrying while the source
+/// answers [`SourceError::RateLimited`] and the policy still has retries
+/// left. Backoff grows with each attempt and is applied run-wide. The error
+/// side is already-formatted text, since that is all the runners need.
+async fn crawl_chapter_paced(
+    params: CrawlChapterParams<'_>,
+    pacer: &Pacer,
+    policy: RatePolicy,
+) -> std::result::Result<CrawlResult, String> {
+    let mut retries: u32 = 0;
+    loop {
+        pacer.wait_turn().await;
+        match crawl_chapter(params.clone()).await {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                let rate_limited = matches!(
+                    error.downcast_ref::<SourceError>(),
+                    Some(SourceError::RateLimited { .. })
+                );
+                if rate_limited && retries < policy.max_retries {
+                    retries += 1;
+                    pacer.back_off(policy.backoff_base * retries).await;
+                    continue;
+                }
+                return Err(describe_failure(&error, retries));
+            }
+        }
+    }
+}
+
 /// Crawl chapters one at a time, propagating any `SkipAll` decision to
 /// suppress prompts on subsequent existing chapters.
 pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcome {
@@ -90,6 +192,8 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
     let mut existing_policy = ExistingFilePolicy::Ask;
     let mut failures: Vec<(u32, String)> = Vec::new();
     let total = chapters.len() as u32;
+    let policy = adapter.rate_policy();
+    let pacer = Pacer::new(policy.min_delay);
 
     for chapter in chapters {
         let chapter_number = chapter.number;
@@ -100,17 +204,21 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
                 total,
             },
         );
-        let result = crawl_chapter(CrawlChapterParams {
-            adapter,
-            chapter: &chapter,
-            output_root: &output_root,
-            if_exists,
-            existing_policy,
-            delay,
-            novel_title: novel_title.as_deref(),
-            fast_skip,
-            prompt: Arc::clone(&prompt),
-        })
+        let result = crawl_chapter_paced(
+            CrawlChapterParams {
+                adapter,
+                chapter: &chapter,
+                output_root: &output_root,
+                if_exists,
+                existing_policy,
+                delay,
+                novel_title: novel_title.as_deref(),
+                fast_skip,
+                prompt: Arc::clone(&prompt),
+            },
+            &pacer,
+            policy,
+        )
         .await;
         match result {
             Ok(crawl) => {
@@ -128,8 +236,7 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
                     },
                 );
             }
-            Err(error) => {
-                let message = error.to_string();
+            Err(message) => {
                 failures.push((chapter_number, message.clone()));
                 emit(
                     &progress,
@@ -191,6 +298,20 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
     } = params;
 
     let total = chapters.len() as u32;
+    let policy = adapter.rate_policy();
+    let requested = workers.max(1);
+    let effective = requested.min(policy.max_concurrency.max(1));
+    if effective < requested {
+        emit(
+            &progress,
+            ProgressEvent::ConcurrencyClamped {
+                requested,
+                effective,
+                source: adapter.id(),
+            },
+        );
+    }
+    let pacer = Arc::new(Pacer::new(policy.min_delay));
     let queue = Arc::new(tokio::sync::Mutex::new(VecDeque::from(chapters)));
     let output_dir: Arc<tokio::sync::Mutex<Option<PathBuf>>> =
         Arc::new(tokio::sync::Mutex::new(None));
@@ -200,8 +321,9 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
     let novel_title = Arc::new(novel_title);
 
     let mut handles = Vec::new();
-    for _ in 0..workers.max(1) {
+    for _ in 0..effective {
         let queue = Arc::clone(&queue);
+        let pacer = Arc::clone(&pacer);
         let output_dir = Arc::clone(&output_dir);
         let failures = Arc::clone(&failures);
         let output_root = Arc::clone(&output_root);
@@ -224,17 +346,21 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                         total,
                     },
                 );
-                let result = crawl_chapter(CrawlChapterParams {
-                    adapter,
-                    chapter: &chapter,
-                    output_root: output_root.as_path(),
-                    if_exists,
-                    existing_policy: ExistingFilePolicy::Ask,
-                    delay: 0.0,
-                    novel_title: novel_title.as_deref(),
-                    fast_skip,
-                    prompt: Arc::clone(&prompt),
-                })
+                let result = crawl_chapter_paced(
+                    CrawlChapterParams {
+                        adapter,
+                        chapter: &chapter,
+                        output_root: output_root.as_path(),
+                        if_exists,
+                        existing_policy: ExistingFilePolicy::Ask,
+                        delay: 0.0,
+                        novel_title: novel_title.as_deref(),
+                        fast_skip,
+                        prompt: Arc::clone(&prompt),
+                    },
+                    &pacer,
+                    policy,
+                )
                 .await;
                 match result {
                     Ok(crawl) => {
@@ -250,8 +376,7 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                             },
                         );
                     }
-                    Err(error) => {
-                        let message = error.to_string();
+                    Err(message) => {
                         failures
                             .lock()
                             .await

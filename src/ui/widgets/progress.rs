@@ -13,6 +13,9 @@ pub enum DownloadLogEntry {
     /// Chapter download failed. Carries the chapter number and the error
     /// message so the rolling log shows *why* it failed, not just that it did.
     Fail(u32, String),
+    /// A run-scoped notice that belongs to no single chapter, e.g. the
+    /// source's rate policy capping the worker count.
+    Note(String),
 }
 
 /// Default number of recent log entries kept for display.
@@ -81,6 +84,12 @@ impl DownloadProgress {
         self.push_log(DownloadLogEntry::Fail(number, message));
     }
 
+    /// Record a run-scoped notice. Counts towards neither `completed` nor
+    /// `failed`: nothing about the chapter tally has changed.
+    pub fn record_note(&mut self, message: String) {
+        self.push_log(DownloadLogEntry::Note(message));
+    }
+
     /// Mark the run as done so the TUI flips into "press Enter to continue" mode.
     pub fn finish(&mut self) {
         self.done = true;
@@ -97,6 +106,13 @@ impl DownloadProgress {
             ProgressEvent::Started { number, .. } => self.record_started(number),
             ProgressEvent::Completed { number, status } => self.record_completed(number, status),
             ProgressEvent::Failed { number, message } => self.record_failed(number, message),
+            ProgressEvent::ConcurrencyClamped {
+                requested,
+                effective,
+                source,
+            } => self.record_note(format!(
+                "{source} allows at most {effective} concurrent requests: using {effective} workers instead of {requested}"
+            )),
         }
     }
 

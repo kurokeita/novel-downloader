@@ -127,3 +127,86 @@ fn validate_url_with_allow_any_host_accepts_localhost() {
 fn validate_url_with_allow_any_host_still_rejects_unsupported() {
     assert!(validate_url("https://example.com/foo", true).is_some());
 }
+
+/// Main page carrying full metadata plus a pagination link whose target is
+/// broken: exactly the shape that made `--epub-only` fail once plan
+/// construction started calling `fetch_novel` unconditionally.
+fn main_page_with_broken_pagination(server_url: &str) -> String {
+    format!(
+        r#"<html><head><title>Cuốn Sách - truyenazz</title></head><body>
+  <h1>Cuốn Sách</h1>
+  <div class="content1"><div class="info">
+    <p>Tác giả: Nguyễn Văn A</p>
+    <p><span class="status">Đang ra</span></p>
+  </div>
+  <p>Thông tin chi tiết:</p>
+  <p>Một truyện rất hay.</p>
+  </div>
+  <img class="lazyloaded" src="/cover.jpg" />
+  <div class="pagination"><ul>
+    <li class="nexts"><a href="{server_url}/foo?page=9"></a></li>
+  </ul></div>
+</body></html>"#
+    )
+}
+
+#[tokio::test]
+async fn fetch_metadata_returns_metadata_without_the_chapter_index() {
+    let mut server = mockito::Server::new_async().await;
+    let main_html = main_page_with_broken_pagination(&server.url());
+    let _main = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    // The pagination target must never be requested: metadata-only callers do
+    // not pay for discovery.
+    let pagination = server
+        .mock("GET", "/foo?page=9")
+        .with_status(500)
+        .expect(0)
+        .create_async()
+        .await;
+
+    let url = format!("{}/foo", server.url());
+    let adapter = resolve(&url, true).unwrap();
+    let novel = adapter.fetch_metadata(&url).await.unwrap();
+
+    assert_eq!(novel.title, "Cuốn Sách");
+    assert_eq!(novel.author.as_deref(), Some("Nguyễn Văn A"));
+    assert_eq!(novel.status.as_deref(), Some("Đang ra"));
+    assert_eq!(novel.description.as_deref(), Some("Một truyện rất hay."));
+    assert_eq!(
+        novel.cover_url.as_deref(),
+        Some(format!("{}/cover.jpg", server.url()).as_str())
+    );
+    assert!(
+        novel.chapters.is_empty(),
+        "metadata-only fetch must leave the index empty, got {} chapters",
+        novel.chapters.len()
+    );
+    pagination.assert_async().await;
+}
+
+#[tokio::test]
+async fn fetch_novel_still_walks_pagination_and_fails_when_it_is_unreachable() {
+    let mut server = mockito::Server::new_async().await;
+    let main_html = main_page_with_broken_pagination(&server.url());
+    let _main = server
+        .mock("GET", "/foo/")
+        .with_body(&main_html)
+        .create_async()
+        .await;
+    let _pagination = server
+        .mock("GET", "/foo?page=9")
+        .with_status(500)
+        .create_async()
+        .await;
+
+    let url = format!("{}/foo", server.url());
+    let adapter = resolve(&url, true).unwrap();
+    assert!(
+        adapter.fetch_novel(&url).await.is_err(),
+        "fetch_novel needs the chapter index and must still fail here"
+    );
+}

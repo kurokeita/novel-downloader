@@ -21,13 +21,6 @@ pub use discovery::{
     discover_last_chapter_number_from_html, discover_last_chapter_number_from_main_page,
     find_last_page_url, max_chapter_in_html,
 };
-/// Main-page extractors, public only until PR 5 moves `Novel` metadata into
-/// `BuildEpubParams` and the EPUB layer stops reading HTML.
-pub use metadata::{
-    extract_author_from_main_page, extract_cover_image_url,
-    extract_novel_description_from_main_page, extract_novel_status_from_main_page,
-    extract_novel_title_from_main_page,
-};
 pub use parser::extract_full_chapter_text;
 
 /// Hosts this adapter claims, alphabetical so error messages are stable.
@@ -48,6 +41,19 @@ fn main_page_url(url: &str) -> String {
 /// `https://metruyenhotvn.com/foo/chuong-7/`.
 fn chapter_url(main_url: &str, number: u32) -> String {
     format!("{main_url}chuong-{number}/")
+}
+
+/// Run the five main-page extractors over an already-fetched page, leaving
+/// the chapter index empty for the caller to fill in.
+fn metadata_from_main_page(main_url: &str, html: &str) -> Novel {
+    Novel {
+        title: metadata::extract_novel_title_from_main_page(html),
+        author: metadata::extract_author_from_main_page(html),
+        description: metadata::extract_novel_description_from_main_page(html),
+        status: metadata::extract_novel_status_from_main_page(html),
+        cover_url: metadata::extract_cover_image_url(main_url, html),
+        chapters: Vec::new(),
+    }
 }
 
 #[async_trait]
@@ -85,21 +91,22 @@ impl SiteAdapter for Metruyenhot {
         let main_url = main_page_url(url);
         let html = fetch_html(&main_url).await?;
         let last = discovery::discover_last_chapter_number_from_main_page(&html, &main_url).await?;
-        let chapters = (1..=last)
+        let mut novel = metadata_from_main_page(&main_url, &html);
+        novel.chapters = (1..=last)
             .map(|number| ChapterRef {
                 number,
                 title: None,
                 locator: chapter_url(&main_url, number),
             })
             .collect();
-        Ok(Novel {
-            title: metadata::extract_novel_title_from_main_page(&html),
-            author: metadata::extract_author_from_main_page(&html),
-            description: metadata::extract_novel_description_from_main_page(&html),
-            status: metadata::extract_novel_status_from_main_page(&html),
-            cover_url: metadata::extract_cover_image_url(&main_url, &html),
-            chapters,
-        })
+        Ok(novel)
+    }
+
+    /// One main-page fetch and the five extractors, with no pagination walk.
+    async fn fetch_metadata(&self, url: &str) -> SourceResult<Novel> {
+        let main_url = main_page_url(url);
+        let html = fetch_html(&main_url).await?;
+        Ok(metadata_from_main_page(&main_url, &html))
     }
 
     /// Fetch and parse one chapter page. An empty body fails here rather

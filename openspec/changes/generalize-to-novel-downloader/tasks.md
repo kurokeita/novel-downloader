@@ -48,16 +48,16 @@ Already landed by PR 3, so PR 4 does not repeat it: `ChapterRef` exists in `src/
 
 - [x] 4.1 Change `crawler/chapter.rs` to take a `&ChapterRef` plus the adapter instead of `base_url` + `chapter_number`; keep the existing `ExistingFilePolicy` / `fast_skip` / prompt behavior and the `chapter_NNNN.html` output path unchanged. **`&ChapterRef` done in PR 3; the adapter parameter remains**
 - [x] 4.2 Change `runner.rs` `SequentialParams` / `ParallelParams` to carry the adapter and a chapter-ref slice; apply chapter-range selection as a slice of the index rather than arithmetic. **Chapter-ref slice done in PR 3; the adapter field remains, and range selection is still a `Vec<u32>` on `InteractivePlan` mapped to refs at the binary boundary until `fetch_novel` supplies a real index**
-- [ ] 4.3 Add a run-scoped `ProgressEvent::ConcurrencyClamped { requested, effective, source }` variant; the three existing variants are all chapter-keyed and none can carry this
-- [ ] 4.4 Clamp effective concurrency to `min(user, policy.max_concurrency)` and emit `ConcurrencyClamped` when the clamp bites; handle the new variant in both consumers (the `indicatif` callback in `src/bin/`, and `DownloadProgress` / `make_tui_progress_callback` in `ui/widgets/progress.rs`)
-- [ ] 4.5 Add a shared retry wrapper in the runner: on `SourceError::RateLimited`, back off with increasing delay, retry up to `policy.max_retries`, and slow the whole run rather than the single chapter
-- [ ] 4.6 Enforce `policy.min_delay` between requests
-- [ ] 4.7 Report exhausted retries as a failure that names rate limiting; report `Unentitled` chapters distinctly and let the run continue
+- [x] 4.3 Add a run-scoped `ProgressEvent::ConcurrencyClamped { requested, effective, source }` variant; the three existing variants are all chapter-keyed and none can carry this
+- [x] 4.4 Clamp effective concurrency to `min(user, policy.max_concurrency)` and emit `ConcurrencyClamped` when the clamp bites; handle the new variant in both consumers (the `indicatif` callback in `src/bin/`, and `DownloadProgress` / `make_tui_progress_callback` in `ui/widgets/progress.rs`)
+- [x] 4.5 Add a shared retry wrapper in the runner: on `SourceError::RateLimited`, back off with increasing delay, retry up to `policy.max_retries`, and slow the whole run rather than the single chapter
+- [x] 4.6 Enforce `policy.min_delay` between requests
+- [x] 4.7 Report exhausted retries as a failure that names rate limiting; report `Unentitled` chapters distinctly and let the run continue
 - [x] 4.8 Change `BuildEpubParams` to carry `Novel` metadata so `epub/build.rs` stops calling `fetch_html` and the five extractors; **keep the `novel_main_url` field**, which `build.rs` also uses as the OPF `dc:identifier` and the NCX source URL
 - [x] 4.9 Keep `metadata_override` and its current precedence: an interactive title/author override still wins, with `Novel` replacing the main page as the fallback source
 - [x] 4.10 Confirm `epub/package.rs`, `epub/chapters.rs` and `font.rs` need no edits, and that a rebuilt EPUB for an already-downloaded novel is byte-identical to a pre-refactor one
 - [x] 4.11 Add a `source: &'a str` (or equivalent) field to `ui::plan::SummaryParams`, populate it from the resolved adapter's `display_name()`, and render it in `build_summary`; add no wizard step
-- [ ] 4.12 Verify `tests/runner.rs`, `tests/epub.rs`, `tests/ui.rs`, `tests/cli.rs` and `tests/crawl_chapter.rs` pass
+- [x] 4.12 Verify `tests/runner.rs`, `tests/epub.rs`, `tests/ui.rs`, `tests/cli.rs` and `tests/crawl_chapter.rs` pass
 
 ## 5. khodocsach adapter
 

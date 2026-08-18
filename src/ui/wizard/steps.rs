@@ -242,7 +242,8 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
     };
 
     // Only EPUB-only mode reaches this step without having run discovery, so
-    // it is the only path that needs a pre-fill fetch. In crawl modes the
+    // it is the only path that needs a pre-fill fetch - metadata only, since
+    // EPUB-only never needs the chapter index. In crawl modes the
     // title/author are already populated (or left blank after a reported
     // discovery failure), so we never re-fetch here.
     if state.mode == CrawlMode::EpubOnly && state.novel_title.is_none() {
@@ -255,7 +256,7 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
                 let adapter = crate::source::registry::resolve(&url, allow_any_host)
                     .map_err(|error| error.to_string())?;
                 let novel = adapter
-                    .fetch_novel(&url)
+                    .fetch_metadata(&url)
                     .await
                     .map_err(|error| format!("Could not read {url}:\n{error}"))?;
                 Ok::<(String, Option<String>, Option<String>), String>((

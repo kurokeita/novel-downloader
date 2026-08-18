@@ -116,6 +116,10 @@ fn draw_download(
                         Style::default().fg(palette::MUTED),
                     ),
                 ])),
+                DownloadLogEntry::Note(message) => ListItem::new(Line::from(vec![
+                    Span::styled(" i ", Style::default().fg(palette::ACCENT)),
+                    Span::styled(message.clone(), Style::default().fg(palette::MUTED)),
+                ])),
                 DownloadLogEntry::Fail(n, message) => ListItem::new(Line::from(vec![
                     Span::styled(
                         " ✗ ",
