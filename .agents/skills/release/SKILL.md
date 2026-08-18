@@ -69,7 +69,7 @@ git push -u origin chore/release-vX.Y.Z
 gh pr create --base main --title "chore(release): vX.Y.Z" --body "..."
 ```
 
-Do **not** stage unrelated working-tree changes (e.g. `.serena/project.yml`).
+Do **not** stage unrelated working-tree changes (e.g. local tooling config).
 
 ## Step 2 — Merge, then tag (human-gated)
 

@@ -1,0 +1,80 @@
+schema: spec-driven
+
+context: |
+  ## What this project is
+
+  A Rust crawler + EPUB builder for Vietnamese novel sites. One crate exposing
+  a library (`truyenazz_crawler`) and one binary (`truyenazz-crawl`) with two
+  surfaces: a clap-driven non-interactive CLI and a ratatui interactive TUI.
+  Edition 2024, async on tokio.
+
+  Note: the repo directory is `novel-downloader` but the crate is still
+  `truyenazz-crawler`. The in-flight `generalize-to-novel-downloader` change
+  renames it and introduces a `SiteAdapter` seam; until that change is
+  archived, code on `main` is still single-site (metruyenhot).
+
+  ## Module layout
+
+  - `utils.rs` — pure helpers (`clean_text`, `slugify`, `build_chapter_url`,
+    `find_font_file`) plus reqwest `fetch_html`/`download_binary` and async fs.
+    All I/O funnels through here so tests can swap in `mockito`/`tempfile`.
+  - `crawler/` — `parser.rs` (scraper-based HTML extraction, noise filtering),
+    `chapter.rs` (`crawl_chapter` orchestrator), `discovery.rs` (last-chapter
+    discovery), `types.rs` (`ExistingFilePolicy` state machine).
+  - `runner.rs` — `crawl_chapters_sequential` / `crawl_chapters_parallel`,
+    `ProgressEvent` callback, `RunnerOutcome`. Sequential propagates `SkipAll`
+    run-wide.
+  - `epub/` — `metadata.rs`, `chapters.rs`, `package.rs` (XHTML/NCX/OPF/nav),
+    `build.rs` (`build_epub`, EPUB 3 zip with STORE-compressed mimetype first).
+  - `font.rs` — best-effort TTF `name`-table parser; falls back to file stem.
+  - `cli.rs` — clap derive `RawArgs` + normalized `CliOptions` + validators.
+  - `ui/` — `widgets/` (pure state machines), `screens/` (ratatui screens, each
+    owning a `TerminalGuard`), `wizard/` (`WizardStep` machine → `InteractivePlan`).
+
+  ## Conventions that specs and tasks must respect
+
+  - **TDD is the workflow.** Every new function enters via a failing test in
+    `tests/<module>.rs` first, then a minimal implementation.
+  - Integration tests exercise only the public API. HTTP mocked with
+    `mockito::Server::new_async`, filesystem with `tempfile::tempdir()`.
+    Test names spell out the behavior.
+  - Doc-comment (`///`) every function. Project override of the default
+    no-comments guidance.
+  - Prefer edition-2024 let-chains; parameter structs for >5-arg functions;
+    pre-compile regexes with `once_cell::sync::Lazy`.
+  - `anyhow::Result` for application code, `thiserror` for typed library errors.
+  - No backwards-compat shims — edit the API freely and let the compiler push
+    call sites.
+
+  ## Definition of done
+
+  - `cargo test` green.
+  - `cargo clippy --all-targets` 0 warnings (CI floor).
+  - `cargo build --release` succeeds.
+  - UI-touching changes need eyes-on-terminal verification; the TUI run loop is
+    not unit-tested, only its state machines.
+
+rules:
+  proposal:
+    - "State which surfaces change: library API, CLI flags, TUI wizard steps, or EPUB output. A change touching none of these is probably not worth a proposal."
+    - "Call out breaking changes to the public library API or to CLI flag names explicitly, since there are no compat shims."
+  specs:
+    - "Write requirements against observable behavior of the public API, the CLI, or the EPUB artifact, not against private module internals."
+    - "Every requirement needs at least one scenario that maps onto a test in `tests/<module>.rs`."
+  design:
+    - "Only write a design when the change crosses module boundaries or introduces a new trait/seam. Single-module changes skip it."
+    - "Name which existing module owns each new piece of behavior rather than inventing a new module by default."
+  tasks:
+    - "Order tasks test-first, so the failing test is its own task, ahead of the implementation task it drives."
+    - "End with tasks for `cargo test`, `cargo clippy --all-targets`, and `cargo fmt --check`."
+
+operations:
+  apply:
+    guidance:
+      - "Follow TDD. Write the failing test, watch it fail, then implement."
+      - "Add a `///` doc comment to every new function."
+      - "Never run `git commit`; the user owns when to commit. No `Co-Authored-By: Claude` trailers."
+  archive:
+    guidance:
+      - "Do not archive until `cargo test` and `cargo clippy --all-targets` are both clean."
+      - "For UI-touching changes, confirm the user has eyeballed the TUI."
