@@ -151,6 +151,14 @@ fn format_event(event: &ProgressEvent) -> Option<String> {
         ProgressEvent::Failed { number, message } => {
             Some(format!("[FAIL] Chapter {}: {}", number, message))
         }
+        ProgressEvent::ConcurrencyClamped {
+            requested,
+            effective,
+            source,
+        } => Some(format!(
+            "[INFO] {} allows at most {} concurrent requests; using {} workers instead of {}.",
+            source, effective, effective, requested
+        )),
     }
 }
 
@@ -164,18 +172,21 @@ fn make_progress_callback(bar: ProgressBar) -> ProgressCallback {
             bar.set_message(format!("→ chapter {}", number));
         }
         let line = format_event(&event);
-        match event {
-            ProgressEvent::Started { .. } => {}
-            ProgressEvent::Completed { .. } | ProgressEvent::Failed { .. } => {
-                if let Some(text) = line {
-                    if bar.is_hidden() {
-                        eprintln!("{}", text);
-                    } else {
-                        bar.println(text);
-                    }
-                }
-                bar.inc(1);
+        // Only chapter-keyed events advance the bar; the run-scoped clamp
+        // notice is printed alongside it.
+        let advances = matches!(
+            event,
+            ProgressEvent::Completed { .. } | ProgressEvent::Failed { .. }
+        );
+        if let Some(text) = line {
+            if bar.is_hidden() {
+                eprintln!("{}", text);
+            } else {
+                bar.println(text);
             }
+        }
+        if advances {
+            bar.inc(1);
         }
     })
 }

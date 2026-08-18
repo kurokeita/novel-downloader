@@ -112,10 +112,20 @@ below list each submodule's role.
   `crawl_chapter` repeatedly via `SequentialParams` / `ParallelParams`.
   **Sequential propagates `SkipAll` run-wide** so once a user picks
   "skip all" the rest of the run never prompts again. Both runners emit
-  `ProgressEvent::Started/Completed/Failed` through an optional
-  `Arc<dyn Fn(ProgressEvent) + Send + Sync>` callback and return a
+  `ProgressEvent::Started/Completed/Failed/ConcurrencyClamped` through an
+  optional `Arc<dyn Fn(ProgressEvent) + Send + Sync>` callback and return a
   `RunnerOutcome`. The CLI guards against
   `--workers > 1 && --if-exists ask`.
+  Both runners also enforce the adapter's `RatePolicy`: the parallel one
+  starts `min(--workers, policy.max_concurrency)` workers and emits the
+  run-scoped `ConcurrencyClamped` event when that bites, and both share a
+  `Pacer` — one run-wide "not before" instant — that spaces requests by
+  `policy.min_delay` and absorbs `SourceError::RateLimited` by pushing the
+  whole run back, retrying up to `policy.max_retries` with growing backoff.
+  `describe_failure` gives rate limiting and `Unentitled` their own wording
+  in the failures list. metruyenhot's policy is permissive
+  (`max_concurrency: usize::MAX`, zero delays), so all of this is a no-op
+  for it.
 
 - **`epub/`** — split across four files, re-exported from
   `epub/mod.rs`:

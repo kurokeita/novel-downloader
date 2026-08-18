@@ -41,6 +41,9 @@ pub enum CrawlStatus {
 }
 
 /// All inputs needed to crawl a single chapter URL into a saved HTML file.
+/// `Clone` so the runner's retry loop can make a fresh attempt from the same
+/// inputs; every field is either a shared reference or an `Arc`.
+#[derive(Clone)]
 pub struct CrawlChapterParams<'a> {
     /// Source that produced `chapter` and knows how to fetch it. The crawler
     /// never touches the network itself.
