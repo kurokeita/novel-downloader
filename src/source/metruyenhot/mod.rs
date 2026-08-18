@@ -21,13 +21,6 @@ pub use discovery::{
     discover_last_chapter_number_from_html, discover_last_chapter_number_from_main_page,
     find_last_page_url, max_chapter_in_html,
 };
-/// Main-page extractors, public only until PR 5 moves `Novel` metadata into
-/// `BuildEpubParams` and the EPUB layer stops reading HTML.
-pub use metadata::{
-    extract_author_from_main_page, extract_cover_image_url,
-    extract_novel_description_from_main_page, extract_novel_status_from_main_page,
-    extract_novel_title_from_main_page,
-};
 pub use parser::extract_full_chapter_text;
 
 /// Hosts this adapter claims, alphabetical so error messages are stable.
