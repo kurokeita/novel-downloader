@@ -192,7 +192,7 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   `utils.rs`. Shared HTML fixtures live under `tests/fixtures/`.
 - HTTP is mocked with `mockito::Server::new_async`.
 - Filesystem with `tempfile::tempdir()`.
-- Test names spell out the behaviour:
+- Test names spell out the behavior:
   `crawl_chapter_writes_html_when_file_missing`,
   `parallel_collects_failures_sorted_by_chapter`.
 - The TUI run loop is **not** unit-tested (real terminal required);
@@ -220,9 +220,7 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   `--output-root`.
 - **Fast skip:** when `--fast-skip` is set and the destination chapter
   file already exists, the network fetch is skipped entirely.
-- **Serena** is configured with `language: rust` in `.serena/project.yml`
-  — restart the Serena session after a language-server upgrade.
 - **Auto-memory pointer:** the harness's auto-memory directory at
   `~/.claude/projects/-Users-minhle-dev-truyenazz-crawler/memory/` holds
   `feedback_doc_comments.md` (the doc-comment-every-fn rule). Project
-  conventions live as Serena memories under `.serena/memories/`.
+  conventions live in this file.
