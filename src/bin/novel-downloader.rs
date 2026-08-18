@@ -7,23 +7,19 @@ use indicatif::{ProgressBar, ProgressStyle};
 use novel_downloader::cli::{
     CliOptions, RawArgs, chapter_range, from_raw, validate_chapter_range, validate_shared_options,
 };
-use novel_downloader::crawler::{
-    CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, discover_last_chapter_number,
-};
-use novel_downloader::epub::{
-    BuildEpubParams, EpubMetadataOverride, build_epub, extract_novel_title_from_main_page,
-};
+use novel_downloader::crawler::{CrawlStatus, ExistingChapterDecision, ExistingFilePolicy};
+use novel_downloader::epub::{BuildEpubParams, EpubMetadataOverride, build_epub};
 use novel_downloader::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, SequentialParams, crawl_chapters_parallel,
     crawl_chapters_sequential,
 };
-use novel_downloader::sites::validate_url;
-use novel_downloader::source::ChapterRef;
+use novel_downloader::source::registry::{resolve, validate_url};
+use novel_downloader::source::{ChapterRef, SiteAdapter};
 use novel_downloader::ui::{
     CrawlMode, DownloadProgress, InteractivePlan, make_tui_progress_callback, run_download_screen,
     run_interactive_flow,
 };
-use novel_downloader::utils::{chapter_index, fetch_html, slugify};
+use novel_downloader::utils::slugify;
 
 /// Non-TUI prompt for existing chapter files. Reads a line from stdin and
 /// maps r/s/a to the [`ExistingChapterDecision`] variants. Defaults to Skip
@@ -49,22 +45,17 @@ fn cli_existing_chapter_prompt(chapter_path: &std::path::Path) -> ExistingChapte
 async fn build_non_interactive_plan(
     base_url: String,
     options: &CliOptions,
+    adapter: &'static dyn SiteAdapter,
 ) -> Result<InteractivePlan> {
     let mut chapter_numbers: Option<Vec<u32>> = None;
+    let mut chapters: Vec<ChapterRef> = Vec::new();
     let mut novel_title: Option<String> = None;
 
     if !options.epub_only {
-        let main_url = format!("{}/", base_url.trim_end_matches('/'));
-        let main_html = fetch_html(&main_url).await?;
-        novel_title = Some(extract_novel_title_from_main_page(&main_html));
+        let novel = adapter.fetch_novel(&base_url).await?;
+        novel_title = Some(novel.title);
 
-        let last = match discover_last_chapter_number(&base_url).await {
-            Ok(n) => Some(n),
-            Err(error) => {
-                eprintln!("[WARN] could not discover latest chapter: {}", error);
-                None
-            }
-        };
+        let last = novel.chapters.last().map(|chapter| chapter.number);
         let start = options.start.unwrap_or(1);
         let mut end = match (options.end, last) {
             (Some(e), _) => e,
@@ -83,7 +74,13 @@ async fn build_non_interactive_plan(
         if let Some(message) = validate_chapter_range(start, end) {
             return Err(anyhow::anyhow!("{}", message.replace("Error: ", "")));
         }
-        chapter_numbers = Some(chapter_range(start, end));
+        let numbers = chapter_range(start, end);
+        chapters = novel
+            .chapters
+            .into_iter()
+            .filter(|chapter| numbers.contains(&chapter.number))
+            .collect();
+        chapter_numbers = Some(numbers);
     }
 
     let mode = if options.epub_only {
@@ -99,6 +96,7 @@ async fn build_non_interactive_plan(
         mode,
         output_root: PathBuf::from(&options.output_root),
         chapter_numbers,
+        chapters,
         delay: options.delay,
         workers: options.workers,
         epub: options.epub || options.epub_only,
@@ -174,16 +172,19 @@ fn make_progress_callback(bar: ProgressBar) -> ProgressCallback {
 
 /// Resolve the per-novel chapter directory used for an `epub_only` run when
 /// no explicit `--chapter-dir` was provided.
-async fn infer_chapter_dir(base_url: &str, output_root: &std::path::Path) -> Result<PathBuf> {
-    let main_url = format!("{}/", base_url.trim_end_matches('/'));
-    let main_html = fetch_html(&main_url).await?;
-    let title = extract_novel_title_from_main_page(&main_html);
-    Ok(output_root.join(slugify(&title, "book")))
+async fn infer_chapter_dir(
+    base_url: &str,
+    output_root: &std::path::Path,
+    adapter: &'static dyn SiteAdapter,
+) -> Result<PathBuf> {
+    let novel = adapter.fetch_novel(base_url).await?;
+    Ok(output_root.join(slugify(&novel.title, "book")))
 }
 
 /// Drive a chapter run with an indicatif progress bar (non-interactive mode).
 async fn run_with_indicatif(
     plan: &InteractivePlan,
+    adapter: &'static dyn SiteAdapter,
     chapters: Vec<ChapterRef>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
 ) -> Result<novel_downloader::runner::RunnerOutcome, i32> {
@@ -191,6 +192,7 @@ async fn run_with_indicatif(
     let progress = make_progress_callback(bar.clone());
     let outcome = if plan.workers <= 1 {
         crawl_chapters_sequential(SequentialParams {
+            adapter,
             chapters,
             output_root: plan.output_root.clone(),
             if_exists: plan.if_exists,
@@ -208,6 +210,7 @@ async fn run_with_indicatif(
             return Err(1);
         }
         crawl_chapters_parallel(ParallelParams {
+            adapter,
             chapters,
             output_root: plan.output_root.clone(),
             if_exists: plan.if_exists,
@@ -230,6 +233,7 @@ async fn run_with_indicatif(
 /// the bare terminal never flashes between TUI screens.
 async fn run_with_tui(
     plan: &InteractivePlan,
+    adapter: &'static dyn SiteAdapter,
     chapters: Vec<ChapterRef>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
     wait_for_user: bool,
@@ -247,6 +251,7 @@ async fn run_with_tui(
     let task = tokio::spawn(async move {
         if plan_clone.workers <= 1 {
             crawl_chapters_sequential(SequentialParams {
+                adapter,
                 chapters,
                 output_root: plan_clone.output_root.clone(),
                 if_exists: plan_clone.if_exists,
@@ -259,6 +264,7 @@ async fn run_with_tui(
             .await
         } else {
             crawl_chapters_parallel(ParallelParams {
+                adapter,
                 chapters,
                 output_root: plan_clone.output_root.clone(),
                 if_exists: plan_clone.if_exists,
@@ -343,7 +349,11 @@ fn prompt_failure_action(interactive: bool, failures: &[(u32, String)]) -> Failu
 ///
 /// `interactive` selects the progress UI: when true, the TUI download screen
 /// is shown; when false, an indicatif bar prints to stderr.
-async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
+async fn execute_plan(
+    plan: InteractivePlan,
+    adapter: &'static dyn SiteAdapter,
+    interactive: bool,
+) -> i32 {
     let prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync> =
         Arc::new(cli_existing_chapter_prompt);
 
@@ -353,7 +363,7 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
     if plan.mode == CrawlMode::EpubOnly {
         output_dir = match plan.chapter_dir.clone() {
             Some(dir) => Some(dir),
-            None => match infer_chapter_dir(&plan.base_url, &plan.output_root).await {
+            None => match infer_chapter_dir(&plan.base_url, &plan.output_root, adapter).await {
                 Ok(p) => Some(p),
                 Err(error) => {
                     eprintln!("[FAIL] Could not infer chapter directory: {}", error);
@@ -374,18 +384,18 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
             }
             println!("[INFO] Using {} worker(s)", plan.workers);
         }
-        let chapters = chapter_index(&plan.base_url, &numbers);
+        let chapters = plan.chapters.clone();
 
         let outcome = if interactive {
             // Skip the post-download "press Enter" wait when an EPUB build
             // screen is queued, so the user transitions straight from the
             // download screen into the build screen.
-            match run_with_tui(&plan, chapters, Arc::clone(&prompt), !plan.epub).await {
+            match run_with_tui(&plan, adapter, chapters, Arc::clone(&prompt), !plan.epub).await {
                 Ok(o) => o,
                 Err(code) => return code,
             }
         } else {
-            match run_with_indicatif(&plan, chapters, Arc::clone(&prompt)).await {
+            match run_with_indicatif(&plan, adapter, chapters, Arc::clone(&prompt)).await {
                 Ok(o) => o,
                 Err(code) => return code,
             }
@@ -431,12 +441,18 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                 }
                 FailureAction::Retry => {
                     let retry_numbers: Vec<u32> = failures.iter().map(|(n, _)| *n).collect();
-                    let retry_chapters = chapter_index(&plan.base_url, &retry_numbers);
+                    let retry_chapters: Vec<ChapterRef> = plan
+                        .chapters
+                        .iter()
+                        .filter(|chapter| retry_numbers.contains(&chapter.number))
+                        .cloned()
+                        .collect();
                     let mut retry_plan = plan.clone();
                     retry_plan.if_exists = ExistingFilePolicy::Overwrite;
                     let outcome = if interactive {
                         match run_with_tui(
                             &retry_plan,
+                            adapter,
                             retry_chapters,
                             Arc::clone(&prompt),
                             !plan.epub,
@@ -447,8 +463,13 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                             Err(code) => return code,
                         }
                     } else {
-                        match run_with_indicatif(&retry_plan, retry_chapters, Arc::clone(&prompt))
-                            .await
+                        match run_with_indicatif(
+                            &retry_plan,
+                            adapter,
+                            retry_chapters,
+                            Arc::clone(&prompt),
+                        )
+                        .await
                         {
                             Ok(o) => o,
                             Err(code) => return code,
@@ -567,7 +588,14 @@ async fn run() -> i32 {
     let interactive = parsed.options.interactive || parsed.base_url.is_none();
     let plan = match parsed.base_url {
         Some(base_url) if !parsed.options.interactive => {
-            match build_non_interactive_plan(base_url, &parsed.options).await {
+            let adapter = match resolve(&base_url, parsed.options.allow_any_host) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    eprintln!("Error: {}", error);
+                    return 2;
+                }
+            };
+            match build_non_interactive_plan(base_url, &parsed.options, adapter).await {
                 Ok(plan) => plan,
                 Err(error) => {
                     eprintln!("Error: {}", error);
@@ -588,7 +616,15 @@ async fn run() -> i32 {
         },
     };
 
-    execute_plan(plan, interactive).await
+    let adapter = match resolve(&plan.base_url, parsed.options.allow_any_host) {
+        Ok(adapter) => adapter,
+        Err(error) => {
+            eprintln!("Error: {}", error);
+            return 2;
+        }
+    };
+
+    execute_plan(plan, adapter, interactive).await
 }
 
 /// Process entry point. Spins up a Tokio runtime and exits with the code

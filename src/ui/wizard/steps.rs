@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use crate::crawler::ExistingFilePolicy;
+use crate::source::ChapterRef;
 use crate::ui::PromptOutcome;
 use crate::ui::plan::{CrawlMode, InteractivePlan, SummaryParams, build_summary};
 use crate::ui::screens::{
@@ -45,7 +46,7 @@ pub(super) fn step_base_url(state: &mut WizardState) -> Result<StepResult> {
         {
             return Some("Enter a valid http:// or https:// URL.".to_string());
         }
-        crate::sites::validate_url(trimmed, allow_any_host)
+        crate::source::registry::validate_url(trimmed, allow_any_host)
     });
     let outcome = run_text_prompt(
         "Novel base URL",
@@ -59,6 +60,7 @@ pub(super) fn step_base_url(state: &mut WizardState) -> Result<StepResult> {
         // Invalidate any previously cached discovery whenever the URL changes.
         state.novel_title = None;
         state.last_discovered = None;
+        state.chapter_index = Vec::new();
         Ok(StepResult::Next(WizardStep::Mode))
     })
 }
@@ -125,9 +127,24 @@ pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
     })
 }
 
+/// Slice a source's chapter index down to the chosen chapter numbers.
+/// Returns empty when no range was chosen (`EpubOnly`) or when discovery
+/// never produced an index.
+fn select_chapters(index: &[ChapterRef], numbers: Option<&[u32]>) -> Vec<ChapterRef> {
+    let Some(numbers) = numbers else {
+        return Vec::new();
+    };
+    index
+        .iter()
+        .filter(|chapter| numbers.contains(&chapter.number))
+        .cloned()
+        .collect()
+}
+
 /// Aggregated novel metadata pulled out of the main page during discovery.
 struct DiscoveredNovel {
     title: Option<String>,
+    chapters: Vec<ChapterRef>,
     author: Option<String>,
     last_chapter: Option<u32>,
     status: Option<String>,
@@ -138,29 +155,24 @@ struct DiscoveredNovel {
 /// styled loading screen, then show a brief novel-info note.
 pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult> {
     let url = state.base_url.clone();
+    let allow_any_host = state.allow_any_host;
     let outcome = run_loading_screen(
         "Discovering novel",
         "Fetching main page and detecting latest chapter…",
         async move {
-            let main_url = format!("{}/", url.trim_end_matches('/'));
-            let html = match crate::utils::fetch_html(&main_url).await {
-                Ok(h) => h,
-                Err(error) => return Err(format!("Could not fetch {main_url}:\n{error}")),
-            };
-            let last_chapter = match crate::crawler::find_last_page_url(&html, &main_url) {
-                Some(last_page_url) => match crate::utils::fetch_html(&last_page_url).await {
-                    Ok(last_html) => crate::crawler::max_chapter_in_html(&last_html, &main_url)
-                        .or_else(|| crate::crawler::max_chapter_in_html(&html, &main_url)),
-                    Err(_) => crate::crawler::max_chapter_in_html(&html, &main_url),
-                },
-                None => crate::crawler::max_chapter_in_html(&html, &main_url),
-            };
-            Ok(DiscoveredNovel {
-                title: Some(crate::epub::extract_novel_title_from_main_page(&html)),
-                author: crate::epub::extract_author_from_main_page(&html),
-                last_chapter,
-                status: crate::epub::extract_novel_status_from_main_page(&html),
-                description: crate::epub::extract_novel_description_from_main_page(&html),
+            let adapter = crate::source::registry::resolve(&url, allow_any_host)
+                .map_err(|error| error.to_string())?;
+            let novel = adapter
+                .fetch_novel(&url)
+                .await
+                .map_err(|error| format!("Could not read {url}:\n{error}"))?;
+            Ok::<DiscoveredNovel, String>(DiscoveredNovel {
+                title: Some(novel.title),
+                author: novel.author,
+                last_chapter: novel.chapters.last().map(|chapter| chapter.number),
+                chapters: novel.chapters,
+                status: novel.status,
+                description: novel.description,
             })
         },
     )
@@ -187,6 +199,7 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
     state.novel_title = novel.title;
     state.novel_author = novel.author;
     state.last_discovered = novel.last_chapter;
+    state.chapter_index = novel.chapters;
     state.novel_status = novel.status;
     state.novel_description = novel.description;
 
@@ -231,18 +244,18 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
     // discovery failure), so we never re-fetch here.
     if state.mode == CrawlMode::EpubOnly && state.novel_title.is_none() {
         let url = state.base_url.clone();
+        let allow_any_host = state.allow_any_host;
         let outcome = run_loading_screen(
             "Fetching novel info",
             "Reading the title and author from the main page…",
             async move {
-                let main_url = format!("{}/", url.trim_end_matches('/'));
-                match crate::utils::fetch_html(&main_url).await {
-                    Ok(html) => Ok((
-                        crate::epub::extract_novel_title_from_main_page(&html),
-                        crate::epub::extract_author_from_main_page(&html),
-                    )),
-                    Err(error) => Err(format!("Could not fetch {main_url}:\n{error}")),
-                }
+                let adapter = crate::source::registry::resolve(&url, allow_any_host)
+                    .map_err(|error| error.to_string())?;
+                let novel = adapter
+                    .fetch_novel(&url)
+                    .await
+                    .map_err(|error| format!("Could not read {url}:\n{error}"))?;
+                Ok::<(String, Option<String>), String>((novel.title, novel.author))
             },
         )
         .await?;
@@ -548,8 +561,12 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
             state.end_chapter,
         ))
     };
+    let source = crate::source::registry::resolve(&state.base_url, state.allow_any_host)
+        .map(|adapter| adapter.display_name())
+        .unwrap_or("unknown");
     let summary = build_summary(SummaryParams {
         base_url: &state.base_url,
+        source,
         mode: state.mode,
         output_root: &state.output_root,
         chapter_numbers: chapter_numbers.as_deref(),
@@ -571,7 +588,8 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
     };
     let outcome = run_confirm("Plan", &summary, true)?;
     match outcome {
-        PromptOutcome::Submitted(true) => Ok(StepResult::Done(InteractivePlan {
+        PromptOutcome::Submitted(true) => Ok(StepResult::Done(Box::new(InteractivePlan {
+            chapters: select_chapters(&state.chapter_index, chapter_numbers.as_deref()),
             base_url: state.base_url.clone(),
             mode: state.mode,
             output_root: state.output_root.clone(),
@@ -585,7 +603,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
             fast_skip: state.fast_skip,
             novel_title: state.novel_title.clone(),
             novel_author: state.novel_author.clone(),
-        })),
+        }))),
         PromptOutcome::Submitted(false) => Ok(StepResult::Next(previous)),
         PromptOutcome::Back => Ok(StepResult::Next(previous)),
         PromptOutcome::Quit => Ok(StepResult::Quit),

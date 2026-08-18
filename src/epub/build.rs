@@ -8,13 +8,13 @@ use crate::font::{FontMetadata, extract_font_metadata};
 use crate::utils::{download_binary, fetch_html, file_exists, find_font_file};
 
 use super::chapters::{extract_title_and_body_from_saved_chapter, list_chapter_files};
-use super::metadata::{
-    extract_author_from_main_page, extract_cover_image_url, extract_novel_title_from_main_page,
-    pick_cover_extension,
-};
+use super::metadata::pick_cover_extension;
 use super::package::{
     ChapterEntry, ContentOpfParams, chapter_xhtml, content_opf, nav_xhtml, ncx_xml,
     title_page_xhtml,
+};
+use crate::source::metruyenhot::{
+    extract_author_from_main_page, extract_cover_image_url, extract_novel_title_from_main_page,
 };
 
 /// User-supplied title/author to use verbatim instead of extracting them from

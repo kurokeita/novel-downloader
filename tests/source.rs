@@ -1,10 +1,43 @@
-use novel_downloader::sites::{
-    SUPPORTED_HOSTS, ensure_supported, ensure_supported_or_local, normalize_host, validate_url,
-};
+use novel_downloader::source::registry::{normalize_host, resolve, supported_hosts, validate_url};
+
+/// Resolve without the local-host escape hatch, mirroring the old
+/// `ensure_supported`.
+fn ensure_supported(url: &str) -> anyhow::Result<String> {
+    resolve(url, false)?;
+    normalize_host(url)
+}
+
+/// Resolve with `--allow-any-host`, mirroring the old
+/// `ensure_supported_or_local`.
+fn ensure_supported_or_local(url: &str) -> anyhow::Result<String> {
+    resolve(url, true)?;
+    normalize_host(url)
+}
+
+#[test]
+fn resolve_maps_every_supported_host_to_the_metruyenhot_adapter() {
+    for host in supported_hosts() {
+        let adapter = resolve(&format!("https://{host}/foo"), false).unwrap();
+        assert_eq!(adapter.id(), "metruyenhot");
+        assert_eq!(adapter.display_name(), "metruyenhot");
+    }
+}
+
+#[test]
+fn resolve_accepts_localhost_only_with_allow_any_host() {
+    assert!(resolve("http://localhost:8765/foo", false).is_err());
+    assert_eq!(
+        resolve("http://localhost:8765/foo", true).unwrap().id(),
+        "metruyenhot"
+    );
+}
 
 #[test]
 fn supported_hosts_listed_alphabetically_for_stable_error_messages() {
-    assert_eq!(SUPPORTED_HOSTS, &["metruyenhotne.com", "metruyenhotvn.com"]);
+    assert_eq!(
+        supported_hosts(),
+        vec!["metruyenhotne.com", "metruyenhotvn.com"]
+    );
 }
 
 #[test]
@@ -31,7 +64,7 @@ fn normalize_host_errors_on_url_without_host() {
 
 #[test]
 fn ensure_supported_accepts_each_listed_host() {
-    for host in SUPPORTED_HOSTS {
+    for host in supported_hosts() {
         let url = format!("https://{host}/some-novel");
         let resolved = ensure_supported(&url)
             .unwrap_or_else(|e| panic!("expected {host} to be accepted, got {e}"));
@@ -51,7 +84,7 @@ fn ensure_supported_rejects_unknown_host_and_lists_supported() {
         .unwrap_err()
         .to_string();
     assert!(err.contains("example.com"), "got: {err}");
-    for host in SUPPORTED_HOSTS {
+    for host in supported_hosts() {
         assert!(err.contains(host), "missing {host} in error: {err}");
     }
 }

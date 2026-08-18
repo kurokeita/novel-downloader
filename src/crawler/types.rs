@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::source::ChapterRef;
+use crate::source::{ChapterRef, SiteAdapter};
 
 /// Policy describing what to do when the chapter file already exists on disk.
 /// Mirrors the TS `ExistingFilePolicy` enum.
@@ -42,6 +42,9 @@ pub enum CrawlStatus {
 
 /// All inputs needed to crawl a single chapter URL into a saved HTML file.
 pub struct CrawlChapterParams<'a> {
+    /// Source that produced `chapter` and knows how to fetch it. The crawler
+    /// never touches the network itself.
+    pub adapter: &'a dyn SiteAdapter,
     /// Chapter to fetch: `number` names the output file, `locator` is the
     /// address fetched. No URL is ever derived from the number.
     pub chapter: &'a ChapterRef,

@@ -4,6 +4,7 @@ use novel_downloader::runner::{
     crawl_chapters_parallel, crawl_chapters_sequential,
 };
 use novel_downloader::source::ChapterRef;
+use novel_downloader::source::metruyenhot::Metruyenhot;
 use std::sync::{Arc, Mutex};
 
 /// Chapter refs pointing at the mock origin server's chapters. Built as
@@ -49,6 +50,7 @@ async fn sequential_writes_each_requested_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome: RunnerOutcome = crawl_chapters_sequential(SequentialParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
@@ -82,6 +84,7 @@ async fn sequential_collects_failures_per_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_sequential(SequentialParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
@@ -124,6 +127,7 @@ async fn sequential_propagates_skip_all_decision() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::SkipAll);
     let outcome = crawl_chapters_sequential(SequentialParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Ask,
@@ -164,6 +168,7 @@ async fn parallel_runs_all_chapters_with_multiple_workers() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_parallel(ParallelParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2, 3, 4]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
@@ -203,6 +208,7 @@ async fn parallel_collects_failures_sorted_by_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_parallel(ParallelParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2, 3]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
@@ -239,6 +245,7 @@ async fn sequential_emits_progress_events_for_each_chapter() {
     let progress: ProgressCallback = Arc::new(move |event| captured.lock().unwrap().push(event));
 
     let _ = crawl_chapters_sequential(SequentialParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
@@ -303,6 +310,7 @@ async fn parallel_emits_progress_events_for_each_chapter() {
     let progress: ProgressCallback = Arc::new(move |event| captured.lock().unwrap().push(event));
 
     let _ = crawl_chapters_parallel(ParallelParams {
+        adapter: &Metruyenhot,
         chapters: chapter_refs(&server.url(), &[1, 2, 3]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,

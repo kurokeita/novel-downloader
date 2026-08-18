@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::cli::CliOptions;
 use crate::crawler::ExistingFilePolicy;
+use crate::source::ChapterRef;
 use crate::ui::plan::{CrawlMode, InteractivePlan};
 
 pub(super) enum WizardStep {
@@ -31,7 +32,7 @@ pub(super) enum StepResult {
     /// User pressed Ctrl+C — abort the wizard.
     Quit,
     /// User confirmed the plan; surface the resulting [`InteractivePlan`].
-    Done(InteractivePlan),
+    Done(Box<InteractivePlan>),
 }
 
 /// Whether the user picked the bundled font or a custom file.
@@ -53,6 +54,9 @@ pub(super) struct WizardState {
     pub(super) novel_status: Option<String>,
     pub(super) novel_description: Option<String>,
     pub(super) last_discovered: Option<u32>,
+    /// Full chapter index from the resolved source, sliced to the chosen
+    /// range when the plan is built. Empty until discovery runs.
+    pub(super) chapter_index: Vec<ChapterRef>,
     pub(super) start_chapter: u32,
     pub(super) end_chapter: u32,
     pub(super) workers: usize,
@@ -86,6 +90,7 @@ impl WizardState {
             novel_status: None,
             novel_description: None,
             last_discovered: None,
+            chapter_index: Vec::new(),
             start_chapter: options.start.unwrap_or(1),
             end_chapter: options.end.unwrap_or(0),
             workers: options.workers.max(1),

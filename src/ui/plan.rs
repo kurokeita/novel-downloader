@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::crawler::ExistingFilePolicy;
+use crate::source::ChapterRef;
 
 /// Top-level operating mode chosen during the interactive flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,6 +25,9 @@ pub struct InteractivePlan {
     pub output_root: PathBuf,
     /// Chapter range, or `None` for `EpubOnly` mode.
     pub chapter_numbers: Option<Vec<u32>>,
+    /// The selected slice of the source's chapter index. Empty for
+    /// `EpubOnly`, where nothing is downloaded.
+    pub chapters: Vec<ChapterRef>,
     /// Sleep between successful chapter writes.
     pub delay: f64,
     /// Concurrency level.
@@ -49,6 +53,8 @@ pub struct InteractivePlan {
 pub struct SummaryParams<'a> {
     /// Resolved novel base URL.
     pub base_url: &'a str,
+    /// Display name of the source the base URL resolved to.
+    pub source: &'a str,
     /// Operating mode chosen by the user.
     pub mode: CrawlMode,
     /// Output root directory.
@@ -77,6 +83,7 @@ pub struct SummaryParams<'a> {
 pub fn build_summary(params: SummaryParams<'_>) -> String {
     let SummaryParams {
         base_url,
+        source,
         mode,
         output_root,
         chapter_numbers,
@@ -102,6 +109,7 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
     };
     let mut lines = vec![
         format!("Base URL: {}", base_url),
+        format!("Source: {}", source),
         format!("Mode: {}", mode_label),
         format!("Output root: {}", output_root.display()),
     ];

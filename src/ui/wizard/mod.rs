@@ -21,7 +21,7 @@ pub async fn run_interactive_flow(
         step = match advance_step(step, &mut state).await? {
             StepResult::Next(next) => next,
             StepResult::Quit => return Ok(None),
-            StepResult::Done(plan) => return Ok(Some(plan)),
+            StepResult::Done(plan) => return Ok(Some(*plan)),
         };
     }
 }

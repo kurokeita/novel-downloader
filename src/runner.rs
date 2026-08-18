@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::crawler::{
     CrawlChapterParams, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, crawl_chapter,
 };
-use crate::source::ChapterRef;
+use crate::source::{ChapterRef, SiteAdapter};
 
 /// One observable progress event emitted by the runners. Consumers (CLI
 /// progress bar, TUI progress widget, log printer) receive a stream of these.
@@ -41,6 +41,9 @@ pub struct RunnerOutcome {
 
 /// Inputs to [`crawl_chapters_sequential`].
 pub struct SequentialParams {
+    /// Source every chapter in this run belongs to. `'static` because the
+    /// registry hands out shared adapters that outlive any run.
+    pub adapter: &'static dyn SiteAdapter,
     /// Chapters to fetch, in order. A `--start`/`--end` range is a slice of
     /// the novel's chapter index rather than a computed number sequence.
     pub chapters: Vec<ChapterRef>,
@@ -72,6 +75,7 @@ fn emit(progress: &Option<ProgressCallback>, event: ProgressEvent) {
 /// suppress prompts on subsequent existing chapters.
 pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcome {
     let SequentialParams {
+        adapter,
         chapters,
         output_root,
         if_exists,
@@ -97,6 +101,7 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
             },
         );
         let result = crawl_chapter(CrawlChapterParams {
+            adapter,
             chapter: &chapter,
             output_root: &output_root,
             if_exists,
@@ -146,6 +151,9 @@ pub async fn crawl_chapters_sequential(params: SequentialParams) -> RunnerOutcom
 
 /// Inputs to [`crawl_chapters_parallel`].
 pub struct ParallelParams {
+    /// Source every chapter in this run belongs to. `'static` because the
+    /// registry hands out shared adapters that outlive any run.
+    pub adapter: &'static dyn SiteAdapter,
     /// Chapters to fetch (order is not preserved across workers, but
     /// failures are sorted on return).
     pub chapters: Vec<ChapterRef>,
@@ -171,6 +179,7 @@ pub struct ParallelParams {
 /// workers. Failures are returned sorted by chapter number.
 pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
     let ParallelParams {
+        adapter,
         chapters,
         output_root,
         if_exists,
@@ -216,6 +225,7 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                     },
                 );
                 let result = crawl_chapter(CrawlChapterParams {
+                    adapter,
                     chapter: &chapter,
                     output_root: output_root.as_path(),
                     if_exists,
