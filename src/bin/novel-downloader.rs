@@ -390,8 +390,8 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                 Err(code) => return code,
             }
         };
-        if outcome.cancelled {
-            eprintln!("[INFO] Download cancelled by user.");
+        if outcome.canceled {
+            eprintln!("[INFO] Download canceled by user.");
             return 1;
         }
         output_dir = outcome.output_dir;
@@ -454,8 +454,8 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                             Err(code) => return code,
                         }
                     };
-                    if outcome.cancelled {
-                        eprintln!("[INFO] Retry cancelled by user.");
+                    if outcome.canceled {
+                        eprintln!("[INFO] Retry canceled by user.");
                         return 1;
                     }
                     failures = outcome.failures;
@@ -506,7 +506,7 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                 Ok(novel_downloader::ui::PromptOutcome::Submitted(inner)) => inner,
                 Ok(novel_downloader::ui::PromptOutcome::Back)
                 | Ok(novel_downloader::ui::PromptOutcome::Quit) => {
-                    eprintln!("[INFO] EPUB build cancelled by user.");
+                    eprintln!("[INFO] EPUB build canceled by user.");
                     return 1;
                 }
                 Err(error) => {
@@ -578,7 +578,7 @@ async fn run() -> i32 {
         base_url => match run_interactive_flow(base_url, &parsed.options).await {
             Ok(Some(plan)) => plan,
             Ok(None) => {
-                eprintln!("Interactive crawl cancelled.");
+                eprintln!("Interactive crawl canceled.");
                 return 1;
             }
             Err(error) => {

@@ -9,7 +9,7 @@ mod steps;
 use state::{StepResult, WizardState, WizardStep};
 
 /// Run the whole interactive flow and return the resolved [`InteractivePlan`]
-/// or `None` if the user cancelled. Performs an async novel discovery in the
+/// or `None` if the user canceled. Performs an async novel discovery in the
 /// middle so the call must be made from a Tokio runtime.
 pub async fn run_interactive_flow(
     initial_base_url: Option<String>,

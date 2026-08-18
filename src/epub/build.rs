@@ -54,7 +54,7 @@ pub struct BuildEpubParams {
     /// Optional override for the embedded font.
     pub font_path: Option<PathBuf>,
     /// Optional title/author override. When `None`, both are extracted from
-    /// the novel main page (the default, non-interactive behaviour).
+    /// the novel main page (the default, non-interactive behavior).
     pub metadata_override: Option<EpubMetadataOverride>,
 }
 

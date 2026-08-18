@@ -84,7 +84,7 @@ async fn save_chapter_file(
 }
 
 /// Download (or skip) a single chapter, parse it, save it as HTML and return
-/// the resulting [`CrawlResult`]. Honours `fast_skip` to bypass the network
+/// the resulting [`CrawlResult`]. Honors `fast_skip` to bypass the network
 /// when the destination already exists.
 pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult> {
     let CrawlChapterParams {
