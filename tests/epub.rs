@@ -264,19 +264,7 @@ fn content_opf_includes_metadata_and_spine() {
 
 #[tokio::test]
 async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
-    let mut server = mockito::Server::new_async().await;
-    // The page advertises different metadata; the override must win.
-    let main_html = r#"<html><body>
-  <h1>Extracted Title</h1>
-  Tác giả: Extracted Author Thể loại: Tu chân
-</body></html>"#;
-    let _main_mock = server
-        .mock("GET", "/foo/")
-        .with_status(200)
-        .with_body(main_html)
-        .create_async()
-        .await;
-
+    // The source reported different metadata; the override must win.
     let tmp = tempfile::tempdir().unwrap();
     let chapter_dir = tmp.path().join("chapters");
     tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
@@ -293,7 +281,10 @@ async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
     .unwrap();
 
     let returned = build_epub(BuildEpubParams {
-        novel_main_url: format!("{}/foo/", server.url()),
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "Source Title".to_string(),
+        novel_author: Some("Source Author".to_string()),
+        cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: None,
         font_path: None,
@@ -327,24 +318,12 @@ async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
         opf.contains("<dc:creator>Override Author</dc:creator>"),
         "opf: {opf}"
     );
-    assert!(!opf.contains("Extracted Title"));
-    assert!(!opf.contains("Extracted Author"));
+    assert!(!opf.contains("Source Title"));
+    assert!(!opf.contains("Source Author"));
 }
 
 #[tokio::test]
 async fn build_epub_produces_valid_zip_with_expected_entries() {
-    let mut server = mockito::Server::new_async().await;
-    let main_html = r#"<html><body>
-  <h1>Truyện Đẹp</h1>
-  Tác giả: Người Viết Thể loại: Tu chân
-</body></html>"#;
-    let _main_mock = server
-        .mock("GET", "/foo/")
-        .with_status(200)
-        .with_body(main_html)
-        .create_async()
-        .await;
-
     let tmp = tempfile::tempdir().unwrap();
     let chapter_dir = tmp.path().join("chapters");
     tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
@@ -362,7 +341,10 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
 
     let output = tmp.path().join("out.epub");
     let returned = build_epub(BuildEpubParams {
-        novel_main_url: format!("{}/foo/", server.url()),
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "Truyện Đẹp".to_string(),
+        novel_author: Some("Người Viết".to_string()),
+        cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
         font_path: None,

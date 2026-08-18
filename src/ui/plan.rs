@@ -46,6 +46,8 @@ pub struct InteractivePlan {
     pub novel_title: Option<String>,
     /// Novel author, used as an EPUB metadata override when set.
     pub novel_author: Option<String>,
+    /// Cover image URL reported by the source, passed to the EPUB writer.
+    pub novel_cover_url: Option<String>,
 }
 
 /// Holds the ratatui terminal and ensures the alternate screen + raw mode
