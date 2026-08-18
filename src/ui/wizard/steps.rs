@@ -24,7 +24,7 @@ macro_rules! advance_or_back {
 /// Welcome screen. Esc cancels the wizard since there is no earlier step.
 pub(super) fn step_welcome(_state: &mut WizardState) -> Result<StepResult> {
     match show_note(
-        "truyenazz-crawl",
+        "novel-downloader",
         "Welcome — let's set up the crawl.\n\nPress Enter to continue, Esc/Ctrl+C to quit.",
     )? {
         PromptOutcome::Submitted(()) => Ok(StepResult::Next(WizardStep::BaseUrl)),

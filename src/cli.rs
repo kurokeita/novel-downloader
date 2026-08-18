@@ -32,7 +32,7 @@ impl From<CliExistingPolicy> for ExistingFilePolicy {
 /// Raw clap-parsed command-line arguments.
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "truyenazz-crawl",
+    name = "novel-downloader",
     about = "Crawl a chapter range and optionally build an EPUB.",
     version
 )]
@@ -128,7 +128,7 @@ pub struct CliOptions {
 
 impl Default for CliOptions {
     /// Return the same defaults as the clap parser would for an args list
-    /// containing only `truyenazz-crawl`.
+    /// containing only `novel-downloader`.
     fn default() -> Self {
         Self {
             start: None,

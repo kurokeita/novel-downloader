@@ -1,8 +1,8 @@
-use std::time::Duration;
-use truyenazz_crawler::utils::{
+use novel_downloader::utils::{
     build_chapter_url, clean_text, download_binary, ensure_dir, fetch_html, file_exists,
     find_font_file, is_noise, sleep_seconds, slugify,
 };
+use std::time::Duration;
 
 #[test]
 fn clean_text_decodes_html_entities() {

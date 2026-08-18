@@ -1,11 +1,11 @@
-use truyenazz_crawler::cli::{
+use novel_downloader::cli::{
     CliOptions, chapter_range, parse_from, validate_chapter_range, validate_shared_options,
 };
-use truyenazz_crawler::crawler::ExistingFilePolicy;
+use novel_downloader::crawler::ExistingFilePolicy;
 
 #[test]
 fn parse_from_uses_defaults_when_only_base_url_given() {
-    let parsed = parse_from(["truyenazz-crawl", "https://metruyenhotvn.com/foo"]).unwrap();
+    let parsed = parse_from(["novel-downloader", "https://metruyenhotvn.com/foo"]).unwrap();
     assert_eq!(
         parsed.base_url.as_deref(),
         Some("https://metruyenhotvn.com/foo")
@@ -27,7 +27,7 @@ fn parse_from_uses_defaults_when_only_base_url_given() {
 #[test]
 fn parse_from_accepts_full_flag_set() {
     let parsed = parse_from([
-        "truyenazz-crawl",
+        "novel-downloader",
         "https://metruyenhotvn.com/foo",
         "--start",
         "10",
@@ -66,7 +66,7 @@ fn parse_from_accepts_full_flag_set() {
 #[test]
 fn parse_from_accepts_epub_only_with_chapter_dir() {
     let parsed = parse_from([
-        "truyenazz-crawl",
+        "novel-downloader",
         "https://x.me/foo",
         "--epub-only",
         "--chapter-dir",
@@ -80,7 +80,7 @@ fn parse_from_accepts_epub_only_with_chapter_dir() {
 #[test]
 fn parse_from_rejects_invalid_if_exists_value() {
     let err = parse_from([
-        "truyenazz-crawl",
+        "novel-downloader",
         "https://x.me/foo",
         "--if-exists",
         "bogus",
@@ -91,7 +91,7 @@ fn parse_from_rejects_invalid_if_exists_value() {
 
 #[test]
 fn parse_from_allows_interactive_without_base_url() {
-    let parsed = parse_from(["truyenazz-crawl", "-i"]).unwrap();
+    let parsed = parse_from(["novel-downloader", "-i"]).unwrap();
     assert!(parsed.base_url.is_none());
     assert!(parsed.options.interactive);
 }
@@ -152,14 +152,14 @@ fn validate_shared_options_accepts_parallel_workers_with_skip_policy() {
 
 #[test]
 fn parse_from_defaults_allow_any_host_to_false() {
-    let parsed = parse_from(["truyenazz-crawl", "https://metruyenhotvn.com/foo"]).unwrap();
+    let parsed = parse_from(["novel-downloader", "https://metruyenhotvn.com/foo"]).unwrap();
     assert!(!parsed.options.allow_any_host);
 }
 
 #[test]
 fn parse_from_accepts_allow_any_host_flag() {
     let parsed = parse_from([
-        "truyenazz-crawl",
+        "novel-downloader",
         "https://metruyenhotvn.com/foo",
         "--allow-any-host",
     ])

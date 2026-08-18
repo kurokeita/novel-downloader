@@ -1,4 +1,4 @@
-use truyenazz_crawler::sites::{
+use novel_downloader::sites::{
     SUPPORTED_HOSTS, ensure_supported, ensure_supported_or_local, normalize_host, validate_url,
 };
 

@@ -8,8 +8,8 @@ import it.
 
 A Rust crawler + EPUB builder for Vietnamese novel sites
 (`metruyenhotvn.com`, `metruyenhotne.com`).
-The crate exposes a library (`truyenazz_crawler`) and one binary
-(`truyenazz-crawl`) with two surfaces:
+The crate exposes a library (`novel_downloader`) and one binary
+(`novel-downloader`) with two surfaces:
 
 - **Non-interactive CLI** — clap-driven, takes a positional novel URL and
   flags. Drives a sequential or parallel runner, emits an `indicatif`
@@ -23,7 +23,7 @@ The crate exposes a library (`truyenazz_crawler`) and one binary
 
 ```fish
 # build
-cargo build --release           # → target/release/truyenazz-crawl
+cargo build --release           # → target/release/novel-downloader
 
 # tests (123 currently)
 cargo test                      # everything
@@ -45,8 +45,8 @@ cargo run --release -- <url> --epub-only --chapter-dir D   # EPUB-only
 A throwaway local mock is the easiest way to smoke-test end-to-end:
 
 ```fish
-# fixture site under /tmp/truyenazz-mock with /foo/index.html and /foo/chuong-N/index.html
-cd /tmp/truyenazz-mock && python3 -m http.server 8765 &
+# fixture site under /tmp/novel-downloader-mock with /foo/index.html and /foo/chuong-N/index.html
+cd /tmp/novel-downloader-mock && python3 -m http.server 8765 &
 cargo run --release -- http://localhost:8765/foo --start 1 --end 3 \
     --if-exists overwrite --output-root /tmp/crawl-out --delay 0 \
     --allow-any-host
@@ -152,7 +152,7 @@ each submodule's role.
     `header_paragraph`, `footer_hint`, `next_key_event`, `is_ctrl_c`
     helpers and the `PromptOutcome<T>` enum used by every prompt.
 
-The binary (`src/bin/truyenazz-crawl.rs`) only orchestrates: parse CLI →
+The binary (`src/bin/novel-downloader.rs`) only orchestrates: parse CLI →
 either build a non-interactive plan (with `discover_last_chapter_number`
 
 - end-clamping) or `run_interactive_flow` → execute the plan with the TUI

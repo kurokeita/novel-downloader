@@ -6,19 +6,19 @@ Rename by reviewing each tracked file that contains `truyenazz` (`git grep -il t
 
 Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the tap cleanup and the re-enable all land together in section 8.
 
-- [ ] 1.1 Disable the `publish-homebrew` and `publish-winget` jobs in `.github/workflows/release.yml` so a tag pushed mid-overhaul cannot ship a half-renamed package; leave the `build` job and the GitHub release upload live as a test channel. Re-enabled in 8.3
-- [ ] 1.2 Rename package `truyenazz-crawler` → `novel-downloader`, lib target `truyenazz_crawler` → `novel_downloader`, and bin target `truyenazz-crawl` → `novel-downloader` in `Cargo.toml`; rewrite `description` to drop "TruyenAZZ"; add the missing `repository` field pointing at the new URL; leave `version` alone
-- [ ] 1.3 Rename `src/bin/truyenazz-crawl.rs` → `src/bin/novel-downloader.rs` and update every `truyenazz_crawler::` path across `src/` and `tests/`
-- [ ] 1.4 Update the user-facing program name in `src/cli.rs` (clap `name`, line 35, and the doc comment at line 131), `src/ui/mod.rs` (TUI banner, line 95) and `src/ui/wizard/steps.rs` (line 27); **leave the `" - truyenazz"` title-suffix regex in `src/epub/metadata.rs:9-12` exactly as it is**, since it matches metruyenhot page content, not this project's name
-- [ ] 1.5 Update `.github/workflows/release.yml`: `BIN_NAME` (line 14) to `novel-downloader`, which cascades to every release asset name
-- [ ] 1.6 Update the (disabled) Homebrew job in `release.yml`: formula path `Formula/novel-downloader.rb` (lines 134, 181, 185), class `NovelDownloader` (line 135), commit message (line 190), and rewrite the `desc` (line 136) which currently claims "truyenazz.me novels" and is wrong regardless of the rename
-- [ ] 1.7 Update the (disabled) winget job in `release.yml`: `identifier` to `Kurokeita.NovelDownloader` (line 202) and `installers-regex` to match `novel-downloader-windows-x86_64\.zip$` (line 203); leave `Kurokeita.TruyenazzCrawler` abandoned upstream with no moved-manifest PR
-- [ ] 1.8 Confirm `.github/workflows/ci.yml` needs no change (target-matrix build and test only, names no binary, uploads no artifact)
-- [ ] 1.9 Update `README.md`: title, install command, usage block, the mermaid node label, and the module list
-- [ ] 1.10 Update `.agents/skills/release/SKILL.md` and `references/release-notes-template.md` (the canonical location; `.claude/skills/release` is a symlink into it)
-- [ ] 1.11 Update `AGENTS.md` (crate name, binary name, commands, the `/tmp/truyenazz-mock` fixture path) and the crate-name paragraph in `openspec/config.yaml`'s `context` block. `CLAUDE.md` is a one-line `@AGENTS.md` import and needs no edit
-- [ ] 1.12 Verify `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and the full `cargo test` suite pass with no other change
-- [ ] 1.13 Confirm `git grep -i truyenazz` returns only the `epub/metadata.rs` title-suffix regex and its tests
+- [x] 1.1 Disable the `publish-homebrew` and `publish-winget` jobs in `.github/workflows/release.yml` so a tag pushed mid-overhaul cannot ship a half-renamed package; leave the `build` job and the GitHub release upload live as a test channel. Re-enabled in 8.3
+- [x] 1.2 Rename package `truyenazz-crawler` → `novel-downloader`, lib target `truyenazz_crawler` → `novel_downloader`, and bin target `truyenazz-crawl` → `novel-downloader` in `Cargo.toml`; rewrite `description` to drop "TruyenAZZ"; add the missing `repository` field pointing at the new URL; leave `version` alone
+- [x] 1.3 Rename `src/bin/truyenazz-crawl.rs` → `src/bin/novel-downloader.rs` and update every `truyenazz_crawler::` path across `src/` and `tests/`
+- [x] 1.4 Update the user-facing program name in `src/cli.rs` (clap `name`, line 35, and the doc comment at line 131), `src/ui/mod.rs` (TUI banner, line 95) and `src/ui/wizard/steps.rs` (line 27); **leave the `" - truyenazz"` title-suffix regex in `src/epub/metadata.rs:9-12` exactly as it is**, since it matches metruyenhot page content, not this project's name
+- [x] 1.5 Update `.github/workflows/release.yml`: `BIN_NAME` (line 14) to `novel-downloader`, which cascades to every release asset name
+- [x] 1.6 Update the (disabled) Homebrew job in `release.yml`: formula path `Formula/novel-downloader.rb` (lines 134, 181, 185), class `NovelDownloader` (line 135), commit message (line 190), and rewrite the `desc` (line 136) which currently claims "truyenazz.me novels" and is wrong regardless of the rename
+- [x] 1.7 Update the (disabled) winget job in `release.yml`: `identifier` to `Kurokeita.NovelDownloader` (line 202) and `installers-regex` to match `novel-downloader-windows-x86_64\.zip$` (line 203); leave `Kurokeita.TruyenazzCrawler` abandoned upstream with no moved-manifest PR
+- [x] 1.8 Confirm `.github/workflows/ci.yml` needs no change (target-matrix build and test only, names no binary, uploads no artifact)
+- [x] 1.9 Update `README.md`: title, install command, usage block, the mermaid node label, and the module list
+- [x] 1.10 Update `.agents/skills/release/SKILL.md` and `references/release-notes-template.md` (the canonical location; `.claude/skills/release` is a symlink into it)
+- [x] 1.11 Update `AGENTS.md` (crate name, binary name, commands, the `/tmp/truyenazz-mock` fixture path) and the crate-name paragraph in `openspec/config.yaml`'s `context` block. `CLAUDE.md` is a one-line `@AGENTS.md` import and needs no edit
+- [x] 1.12 Verify `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and the full `cargo test` suite pass with no other change
+- [x] 1.13 Confirm `git grep -i truyenazz` returns only the `epub/metadata.rs` title-suffix regex and its tests
 
 ## 2. Source contract and registry
 

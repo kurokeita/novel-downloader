@@ -1,4 +1,4 @@
-# truyenazz-crawler
+# novel-downloader
 
 Rust command-line crawler for Vietnamese novel sites. It downloads chapter
 ranges as clean local HTML files and can package those saved chapters into an
@@ -44,7 +44,7 @@ cargo run -- "https://metruyenhotvn.com/your-novel" --start 1 --end 10
 Or run the compiled binary:
 
 ```sh
-./target/release/truyenazz-crawl "https://metruyenhotvn.com/your-novel" --start 1 --end 10
+./target/release/novel-downloader "https://metruyenhotvn.com/your-novel" --start 1 --end 10
 ```
 
 Output is written to `output/<novel-slug>/chapter_NNNN.html` by default.
@@ -90,7 +90,7 @@ cargo run -- "https://metruyenhotvn.com/your-novel" --epub --font-path /path/to/
 ## CLI Options
 
 ```text
-truyenazz-crawl [OPTIONS] [BASE_URL]
+novel-downloader [OPTIONS] [BASE_URL]
 
 Options:
   --start <N>              Start chapter number, inclusive
@@ -116,7 +116,7 @@ interactive per-file prompts are only safe in the sequential path.
 
 ```mermaid
 flowchart TD
-    A["User runs truyenazz-crawl"] --> B["cli parses arguments"]
+    A["User runs novel-downloader"] --> B["cli parses arguments"]
     B --> C{"interactive or missing URL?"}
     C -->|yes| D["ui wizard collects plan"]
     C -->|no| E["build non-interactive plan"]
@@ -147,7 +147,7 @@ flowchart TD
 ## Code Layout
 
 - `src/cli.rs`: argument parsing and option validation.
-- `src/bin/truyenazz-crawl.rs`: process entry point and top-level orchestration.
+- `src/bin/novel-downloader.rs`: process entry point and top-level orchestration.
 - `src/crawler/`: chapter HTML fetching, parsing, latest-chapter discovery, and file writes.
 - `src/runner.rs`: sequential and parallel chapter runners with progress events.
 - `src/epub/`: metadata extraction, saved-chapter reading, EPUB XML/XHTML generation, and archive writing.
