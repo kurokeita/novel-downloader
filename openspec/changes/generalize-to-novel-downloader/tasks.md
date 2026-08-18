@@ -1,0 +1,89 @@
+## 1. Freeze publishing, then rename
+
+Rename by reviewing each of the 21 tracked files that contain `truyenazz` (`git grep -il truyenazz`). **Do not `sed` the repo**: task 1.4 names a `truyenazz` string that must survive untouched.
+
+Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the tap cleanup and the re-enable all land together in section 8.
+
+- [ ] 1.1 Disable the `publish-homebrew` and `publish-winget` jobs in `.github/workflows/release.yml` so a tag pushed mid-overhaul cannot ship a half-renamed package; leave the `build` job and the GitHub release upload live as a test channel. Re-enabled in 8.3
+- [ ] 1.2 Rename package `truyenazz-crawler` → `novel-downloader`, lib target `truyenazz_crawler` → `novel_downloader`, and bin target `truyenazz-crawl` → `novel-downloader` in `Cargo.toml`; rewrite `description` to drop "TruyenAZZ"; add the missing `repository` field pointing at the new URL; leave `version` alone
+- [ ] 1.3 Rename `src/bin/truyenazz-crawl.rs` → `src/bin/novel-downloader.rs` and update every `truyenazz_crawler::` path across `src/` and `tests/`
+- [ ] 1.4 Update the user-facing program name in `src/cli.rs` (clap `name`, line 35, and the doc comment at line 131), `src/ui/mod.rs` (TUI banner, line 95) and `src/ui/wizard/steps.rs` (line 27); **leave the `" - truyenazz"` title-suffix regex in `src/epub/metadata.rs:9-12` exactly as it is**, since it matches metruyenhot page content, not this project's name
+- [ ] 1.5 Update `.github/workflows/release.yml`: `BIN_NAME` (line 14) to `novel-downloader`, which cascades to every release asset name
+- [ ] 1.6 Update the (disabled) Homebrew job in `release.yml`: formula path `Formula/novel-downloader.rb` (lines 134, 181, 185), class `NovelDownloader` (line 135), commit message (line 190), and rewrite the `desc` (line 136) which currently claims "truyenazz.me novels" and is wrong regardless of the rename
+- [ ] 1.7 Update the (disabled) winget job in `release.yml`: `identifier` to `Kurokeita.NovelDownloader` (line 202) and `installers-regex` to match `novel-downloader-windows-x86_64\.zip$` (line 203); leave `Kurokeita.TruyenazzCrawler` abandoned upstream with no moved-manifest PR
+- [ ] 1.8 Confirm `.github/workflows/ci.yml` needs no change (target-matrix build and test only, names no binary, uploads no artifact)
+- [ ] 1.9 Update `README.md`: title, install command, usage block, the mermaid node label, and the module list
+- [ ] 1.10 Update `.claude/skills/release/SKILL.md` and `references/release-notes-template.md`
+- [ ] 1.11 Update `CLAUDE.md` (crate name, binary name, commands, the `/tmp/truyenazz-mock` fixture path, and the stale auto-memory directory path) and the crate-name paragraph in `openspec/config.yaml`'s `context` block
+- [ ] 1.12 Verify `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and the full `cargo test` suite pass with no other change
+- [ ] 1.13 Confirm `git grep -i truyenazz` returns only the `epub/metadata.rs` title-suffix regex and its tests
+
+## 2. Source contract and registry
+
+- [ ] 2.1 Add `async-trait` dependency; create `src/source/mod.rs` with the `SiteAdapter` trait, `Novel`, `ChapterRef` and `RatePolicy` types per design.md
+- [ ] 2.2 Add `SourceError` with a distinct `RateLimited` variant, plus `NotFound`, `ClientRejected` and `Unentitled`; keep `anyhow` for everything else
+- [ ] 2.3 Create `src/source/registry.rs`: `resolve(url) -> Result<&'static dyn SiteAdapter>` with lowercase + `www.`-stripping host normalization, preserving the existing "unsupported host, supported are …" error wording
+- [ ] 2.4 Port `sites.rs` tests to the registry, including the malformed-URL and no-host cases
+- [ ] 2.5 Reroute the `--allow-any-host` escape hatch (`localhost`, `127.0.0.1`) through the registry, off by default; update both `sites::validate_url` call sites (`src/ui/wizard/steps.rs`, `src/bin/truyenazz-crawl.rs`)
+- [ ] 2.6 Delete `src/sites.rs` and its `SUPPORTED_HOSTS` constant
+
+## 3. Move metruyenhot behind the contract
+
+- [ ] 3.1 Create `src/source/metruyenhot/` and move `crawler/parser.rs` selector logic into it as private helpers
+- [ ] 3.2 Move `crawler/discovery.rs` (pagination scan, `max_chapter_in_html`) into the adapter; use it to build the chapter index
+- [ ] 3.3 Move the five `epub/metadata.rs` main-page extractors (title, status, description, author, cover URL) into the adapter and call them from `fetch_novel`
+- [ ] 3.4 Relocate `pick_cover_extension` into the EPUB layer (`epub/build.rs` or a new `epub/cover.rs`) rather than into the adapter, keeping it public and keeping its three `tests/epub.rs` tests unchanged; only then delete `src/epub/metadata.rs` and drop it from `epub/mod.rs`'s re-exports
+- [ ] 3.5 Implement `fetch_novel`: discover the highest chapter number, then synthesize `ChapterRef`s `1..=N` whose locators are the chapter URLs `build_chapter_url` used to derive; delete `utils::build_chapter_url`
+- [ ] 3.6 Implement `fetch_chapter` from the moved parser; return `ChapterContent` (title + ordered paragraphs)
+- [ ] 3.7 Declare a permissive `RatePolicy` that is a no-op for current users
+- [ ] 3.8 Verify `tests/crawler.rs`, `tests/sites.rs` and the HTML fixtures still pass with only call-site renames
+
+## 4. Rewire the core pipeline
+
+- [ ] 4.1 Change `crawler/chapter.rs` to take a `&ChapterRef` plus the adapter instead of `base_url` + `chapter_number`; keep the existing `ExistingFilePolicy` / `fast_skip` / prompt behavior and the `chapter_NNNN.html` output path unchanged
+- [ ] 4.2 Change `runner.rs` `SequentialParams` / `ParallelParams` to carry the adapter and a chapter-ref slice; apply chapter-range selection as a slice of the index rather than arithmetic
+- [ ] 4.3 Add a run-scoped `ProgressEvent::ConcurrencyClamped { requested, effective, source }` variant; the three existing variants are all chapter-keyed and none can carry this
+- [ ] 4.4 Clamp effective concurrency to `min(user, policy.max_concurrency)` and emit `ConcurrencyClamped` when the clamp bites; handle the new variant in both consumers (the `indicatif` callback in `src/bin/`, and `DownloadProgress` / `make_tui_progress_callback` in `ui/widgets/progress.rs`)
+- [ ] 4.5 Add a shared retry wrapper in the runner: on `SourceError::RateLimited`, back off with increasing delay, retry up to `policy.max_retries`, and slow the whole run rather than the single chapter
+- [ ] 4.6 Enforce `policy.min_delay` between requests
+- [ ] 4.7 Report exhausted retries as a failure that names rate limiting; report `Unentitled` chapters distinctly and let the run continue
+- [ ] 4.8 Change `BuildEpubParams` to carry `Novel` metadata so `epub/build.rs` stops calling `fetch_html` and the five extractors; **keep the `novel_main_url` field**, which `build.rs` also uses as the OPF `dc:identifier` and the NCX source URL
+- [ ] 4.9 Keep `metadata_override` and its current precedence: an interactive title/author override still wins, with `Novel` replacing the main page as the fallback source
+- [ ] 4.10 Confirm `epub/package.rs`, `epub/chapters.rs` and `font.rs` need no edits, and that a rebuilt EPUB for an already-downloaded novel is byte-identical to a pre-refactor one
+- [ ] 4.11 Add a `source: &'a str` (or equivalent) field to `ui::plan::SummaryParams`, populate it from the resolved adapter's `display_name()`, and render it in `build_summary`; add no wizard step
+- [ ] 4.12 Verify `tests/runner.rs`, `tests/epub.rs`, `tests/ui.rs`, `tests/cli.rs` and `tests/crawl_chapter.rs` pass
+
+## 5. khodocsach adapter
+
+- [ ] 5.1 Add `serde` + `serde_json`; create `src/source/khodocsach/` registering host `khodocsach.com` with a conservative `RatePolicy` (start concurrency 2–3, ~500 ms min delay)
+- [ ] 5.2 Define response types for the book endpoint, the chapter-listing endpoint, and the ticket + content endpoints
+- [ ] 5.3 Derive the book slug from the URL path; reject khodocsach URLs that are not book pages
+- [ ] 5.4 Send a non-empty browser-style User-Agent on every request; map a 403 to `SourceError::ClientRejected`
+- [ ] 5.5 Implement `fetch_novel`: resolve the book by slug, map metadata (title, author, description, cover, status), and page the chapter listing to completion treating the server's returned page size as authoritative
+- [ ] 5.6 Fail indexing outright when a listing page cannot be retrieved, rather than returning a partial index
+- [ ] 5.7 Implement `fetch_chapter`: request the ticket inside the per-chapter task immediately before the content request, never batched ahead; re-obtain the ticket and retry once when the content request reports it invalid
+- [ ] 5.8 Map a 429 on either hop to `SourceError::RateLimited`; map an entitlement refusal to `SourceError::Unentitled`
+- [ ] 5.9 Split plain-text content into ordered paragraphs preserving reading order; treat zero paragraphs as a failure
+- [ ] 5.10 Record JSON fixtures and unit-test resolution, pagination, the ticket handshake, error mapping and paragraph splitting offline
+- [ ] 5.11 Calibrate the rate constants against the live site and record the chosen values in one place
+- [ ] 5.12 Update README: both supported sites, host-inferred source selection, and a note that khodocsach downloads are rate-limited and slow
+- [ ] 5.13 Keep `scraper` and `ego-tree` confined to the metruyenhot module, but add **no** Cargo feature gate. Every shipped build (Homebrew, winget, `cargo install`) takes the default feature set, so a khodocsach-only build serves nobody, while the gate costs a doubled CI matrix and `#[cfg]` branching in the registry and its tests. Revisit only if someone asks for a slim build or the crate gains library consumers
+
+## 6. End-to-end verification
+
+- [ ] 6.1 Download a small metruyenhot novel end to end and diff the EPUB against one produced by the pre-refactor binary
+- [ ] 6.2 Download a khodocsach novel end to end; confirm chapter count matches the site's reported total and the EPUB opens in a reader
+- [ ] 6.3 Kill a khodocsach run mid-way, re-run, and confirm it resumes by skipping existing chapter files
+- [ ] 6.4 Confirm an unsupported host, a malformed URL and a non-book khodocsach URL each fail before any network request with the specified error
+
+## 7. Release 2.0.0
+
+Everything here lands in one final PR, after sections 1 to 6 are merged.
+
+- [ ] 7.1 Bump version `1.1.0` → `2.0.0` (breaking: crate name, binary name, and public API all change)
+- [ ] 7.2 Rename the GitHub repository `kurokeita/truyenazz-crawler` → `kurokeita/novel-downloader` and update the local remote; GitHub redirects the old URL, so this is safe to do at any point but is grouped here so all outward-facing identity flips together
+- [ ] 7.3 Re-enable the `publish-homebrew` and `publish-winget` jobs disabled in 1.1, now pointing at the new formula and the new winget identifier
+- [ ] 7.4 Write the 2.0.0 release notes leading with the rename, giving the uninstall-then-reinstall command for both Homebrew and winget; a deleted formula and an abandoned winget identifier both fail silently, so nothing else will tell existing users
+- [ ] 7.5 Tag and release; confirm the assets, the new Homebrew formula and the new winget manifest all publish
+- [ ] 7.6 **Only after 2.0.0 has published**, delete `Formula/truyenazz-crawler.rb` from the `kurokeita/homebrew-brew` tap; add no `oldname` alias (clean break, per design.md). Deleting it earlier would strand 1.1.0 users with no replacement for the length of the overhaul
+- [ ] 7.7 Verify `brew install kurokeita/brew/novel-downloader` and `winget install Kurokeita.NovelDownloader` both work from a clean machine

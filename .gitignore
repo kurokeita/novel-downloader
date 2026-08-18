@@ -2,3 +2,4 @@ node_modules
 target/
 output/
 docs/superpowers/
+.codegraph/
