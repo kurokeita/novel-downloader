@@ -37,7 +37,7 @@ None. The target repository has no existing OpenSpec specs; existing metruyenhot
 - Modified: `src/runner.rs` (rate policy, chapter refs instead of numbers), `src/cli.rs` (renamed binary, adapter-aware validation), `src/ui/wizard/steps.rs` and `src/ui/plan.rs` (URL step resolves the adapter and surfaces its name; no new step), `src/lib.rs`, `Cargo.toml`.
 - Unchanged: `src/epub/package.rs`, `src/epub/build.rs`, `src/epub/chapters.rs`, `src/font.rs`, `src/ui/widgets/**`, `src/ui/screens/**`.
 
-- Renamed but not otherwise touched: `.github/workflows/release.yml` (asset prefix, Homebrew formula, winget identifier), `README.md`, `CLAUDE.md`, `.claude/skills/release/**`, and this change's own `openspec/config.yaml` context block. 21 tracked files contain the string `truyenazz`; `.github/workflows/ci.yml` is not one of them and needs no edit.
+- Renamed but not otherwise touched: `.github/workflows/release.yml` (asset prefix, Homebrew formula, winget identifier), `README.md`, `AGENTS.md`, `.agents/skills/release/**`, and this change's own `openspec/config.yaml` context block. 21 files need renaming; `git grep -il truyenazz` reports 25, the extra four being this change's own artifacts, which record the old name deliberately. `.github/workflows/ci.yml` contains it nowhere and needs no edit.
 - Deliberately **not** renamed: the `" - truyenazz"` title-suffix regex in `epub/metadata.rs`, which matches metruyenhot page content rather than this project's name.
 
 **Dependencies**: add `serde` + `serde_json` (khodocsach JSON), add `async-trait` (or use RPITIT / boxed futures) for the trait; `scraper` and `ego-tree` become confined to the metruyenhot module by construction, with no Cargo feature gate (see design.md, Dependency scoping).

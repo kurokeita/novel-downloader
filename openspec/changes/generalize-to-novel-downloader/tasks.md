@@ -1,6 +1,8 @@
 ## 1. Freeze publishing, then rename
 
-Rename by reviewing each of the 21 tracked files that contain `truyenazz` (`git grep -il truyenazz`). **Do not `sed` the repo**: task 1.4 names a `truyenazz` string that must survive untouched.
+Rename by reviewing each tracked file that contains `truyenazz` (`git grep -il truyenazz`). That reports 25 files, of which **21 need renaming**: the four exceptions are this change's own artifacts (`proposal.md`, `design.md`, `tasks.md`, `openspec/config.yaml`), which record the old name deliberately and must keep it.
+
+**Do not `sed` the repo**: task 1.4 names a `truyenazz` string that must survive untouched.
 
 Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the tap cleanup and the re-enable all land together in section 8.
 
@@ -13,8 +15,8 @@ Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the
 - [ ] 1.7 Update the (disabled) winget job in `release.yml`: `identifier` to `Kurokeita.NovelDownloader` (line 202) and `installers-regex` to match `novel-downloader-windows-x86_64\.zip$` (line 203); leave `Kurokeita.TruyenazzCrawler` abandoned upstream with no moved-manifest PR
 - [ ] 1.8 Confirm `.github/workflows/ci.yml` needs no change (target-matrix build and test only, names no binary, uploads no artifact)
 - [ ] 1.9 Update `README.md`: title, install command, usage block, the mermaid node label, and the module list
-- [ ] 1.10 Update `.claude/skills/release/SKILL.md` and `references/release-notes-template.md`
-- [ ] 1.11 Update `CLAUDE.md` (crate name, binary name, commands, the `/tmp/truyenazz-mock` fixture path, and the stale auto-memory directory path) and the crate-name paragraph in `openspec/config.yaml`'s `context` block
+- [ ] 1.10 Update `.agents/skills/release/SKILL.md` and `references/release-notes-template.md` (the canonical location; `.claude/skills/release` is a symlink into it)
+- [ ] 1.11 Update `AGENTS.md` (crate name, binary name, commands, the `/tmp/truyenazz-mock` fixture path) and the crate-name paragraph in `openspec/config.yaml`'s `context` block. `CLAUDE.md` is a one-line `@AGENTS.md` import and needs no edit
 - [ ] 1.12 Verify `cargo build`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` and the full `cargo test` suite pass with no other change
 - [ ] 1.13 Confirm `git grep -i truyenazz` returns only the `epub/metadata.rs` title-suffix regex and its tests
 
