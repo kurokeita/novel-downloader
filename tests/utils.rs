@@ -1,6 +1,6 @@
 use novel_downloader::utils::{
-    build_chapter_url, chapter_index, clean_text, download_binary, ensure_dir, fetch_html,
-    file_exists, find_font_file, is_noise, sleep_seconds, slugify,
+    clean_text, download_binary, ensure_dir, fetch_html, file_exists, find_font_file, is_noise,
+    sleep_seconds, slugify,
 };
 use std::time::Duration;
 
@@ -80,43 +80,6 @@ fn slugify_truncates_to_120_chars() {
 #[test]
 fn slugify_preserves_dashes_as_underscore() {
     assert_eq!(slugify("foo-bar baz", "novel"), "foo_bar_baz");
-}
-
-#[test]
-fn build_chapter_url_appends_chapter_segment() {
-    assert_eq!(
-        build_chapter_url("https://metruyenhotvn.com/foo", 7),
-        "https://metruyenhotvn.com/foo/chuong-7/"
-    );
-}
-
-#[test]
-fn chapter_index_pairs_each_number_with_its_locator() {
-    let index = chapter_index("https://metruyenhotvn.com/foo", &[3, 4]);
-
-    assert_eq!(index.len(), 2);
-    assert_eq!(index[0].number, 3);
-    assert_eq!(index[0].title, None);
-    assert_eq!(index[0].locator, "https://metruyenhotvn.com/foo/chuong-3/");
-    assert_eq!(index[1].number, 4);
-    assert_eq!(index[1].locator, "https://metruyenhotvn.com/foo/chuong-4/");
-}
-
-#[test]
-fn chapter_index_is_empty_for_an_empty_range() {
-    assert!(chapter_index("https://metruyenhotvn.com/foo", &[]).is_empty());
-}
-
-#[test]
-fn build_chapter_url_strips_trailing_slashes() {
-    assert_eq!(
-        build_chapter_url("https://metruyenhotvn.com/foo/", 1),
-        "https://metruyenhotvn.com/foo/chuong-1/"
-    );
-    assert_eq!(
-        build_chapter_url("https://metruyenhotvn.com/foo///", 42),
-        "https://metruyenhotvn.com/foo/chuong-42/"
-    );
 }
 
 #[tokio::test]

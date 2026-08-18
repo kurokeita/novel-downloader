@@ -383,6 +383,7 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
     let output_root = std::path::PathBuf::from("/tmp/out");
     let font_path = std::path::PathBuf::from("/tmp/MyFont.ttf");
     let summary = build_summary(SummaryParams {
+        source: "metruyenhot",
         base_url: "https://metruyenhotvn.com/foo",
         mode: CrawlMode::CrawlEpub,
         output_root: output_root.as_path(),
@@ -433,6 +434,7 @@ fn prompt_block_height_grows_with_message_lines() {
 fn build_summary_marks_fast_skip_no_when_disabled() {
     let chapters: Vec<u32> = vec![1, 2];
     let summary = build_summary(SummaryParams {
+        source: "metruyenhot",
         base_url: "https://x/",
         mode: CrawlMode::Crawl,
         output_root: std::path::Path::new("output"),

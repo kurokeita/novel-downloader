@@ -2,6 +2,7 @@ use novel_downloader::crawler::{
     CrawlChapterParams, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, crawl_chapter,
 };
 use novel_downloader::source::ChapterRef;
+use novel_downloader::source::metruyenhot::Metruyenhot;
 use std::sync::Arc;
 
 /// Chapter ref pointing at the mock origin server's chapter `number`.
@@ -36,6 +37,7 @@ async fn crawl_chapter_writes_html_when_file_missing() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 1),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Ask,
@@ -81,6 +83,7 @@ async fn crawl_chapter_skips_when_file_exists_and_policy_is_skip() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 2),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Skip,
@@ -114,6 +117,7 @@ async fn crawl_chapter_overwrites_when_policy_is_overwrite() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 3),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Overwrite,
@@ -144,6 +148,7 @@ async fn fast_skip_short_circuits_without_hitting_remote() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 7),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Skip,
@@ -176,6 +181,7 @@ async fn skip_all_policy_short_circuits_remaining_chapters() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 4),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Ask,
@@ -213,6 +219,7 @@ async fn ask_policy_invokes_prompt_and_propagates_skip_all() {
     });
 
     let result = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 5),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Ask,
@@ -240,6 +247,7 @@ async fn crawl_chapter_errors_when_no_paragraphs_extracted() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let err = crawl_chapter(CrawlChapterParams {
+        adapter: &Metruyenhot,
         chapter: &chapter_ref(&server.url(), 6),
         output_root: dir.path(),
         if_exists: ExistingFilePolicy::Skip,

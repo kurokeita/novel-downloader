@@ -54,30 +54,27 @@ pub fn max_chapter_in_html(html: &str, main_url: &str) -> Option<u32> {
     max_n
 }
 
-/// Async wrapper around [`max_chapter_in_html`]: extract the highest chapter
-/// number visible in the given (already-fetched) novel main-page HTML.
-/// Errors when no `/chuong-N/` link is present in the document. Used by
-/// callers that already have the HTML in hand (e.g. the wizard's discover
-/// step) and want a cheap, single-page answer.
+/// Extract the highest chapter number visible in an already-fetched novel
+/// main-page HTML. Errors when no `/chuong-N/` link is present. Cheap,
+/// single-page answer for callers that already hold the HTML.
 pub fn discover_last_chapter_number_from_html(html: &str, main_url: &str) -> Result<u32> {
     max_chapter_in_html(html, main_url)
         .ok_or_else(|| anyhow!("Could not find any /chuong-N/ links on {main_url}."))
 }
 
-/// Discover the highest available chapter number for a novel by following
-/// the chapter-list pagination. The novel main page lists only the first
-/// `N` chapters; `div.pagination li.nexts` links to the last page where the
-/// newest chapter lives. Falls back to the main page itself when no
-/// pagination is present (short novels with a single-page chapter list).
-pub async fn discover_last_chapter_number(base_url: &str) -> Result<u32> {
-    let trimmed = base_url.trim_end_matches('/');
-    let main_url = format!("{trimmed}/");
-    let main_html = fetch_html(&main_url).await?;
-
-    let scan_url = match find_last_page_url(&main_html, &main_url) {
+/// Discover the highest available chapter number from an already-fetched
+/// main page by following the chapter-list pagination. The main page lists
+/// only the first `N` chapters; `div.pagination li.nexts` links to the last
+/// page where the newest chapter lives. Falls back to the main page itself
+/// when there is no pagination (short novels with a single-page list).
+pub async fn discover_last_chapter_number_from_main_page(
+    main_html: &str,
+    main_url: &str,
+) -> Result<u32> {
+    let scan_url = match find_last_page_url(main_html, main_url) {
         Some(last_page) => last_page,
         None => {
-            return max_chapter_in_html(&main_html, &main_url)
+            return max_chapter_in_html(main_html, main_url)
                 .ok_or_else(|| anyhow!("No chapter links on {main_url}."));
         }
     };
@@ -86,7 +83,7 @@ pub async fn discover_last_chapter_number(base_url: &str) -> Result<u32> {
     // Prefer the paginated last page (it carries the newest chapters), but
     // fall back to the main page if the paginated response somehow has no
     // chuong-N links — better to under-report than to fail outright.
-    max_chapter_in_html(&last_html, &main_url)
-        .or_else(|| max_chapter_in_html(&main_html, &main_url))
+    max_chapter_in_html(&last_html, main_url)
+        .or_else(|| max_chapter_in_html(main_html, main_url))
         .ok_or_else(|| anyhow!("No chapter links on {scan_url} or {main_url}."))
 }

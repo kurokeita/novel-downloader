@@ -16,6 +16,7 @@ path = "src/bin/novel-downloader.rs"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "sync", "io-util", "signal"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "charset"] }

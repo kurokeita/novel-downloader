@@ -1,7 +1,19 @@
-use novel_downloader::crawler::{
-    build_html_document, discover_last_chapter_number, discover_last_chapter_number_from_html,
-    escape_html, extract_full_chapter_text,
+use novel_downloader::crawler::{build_html_document, escape_html};
+use novel_downloader::source::SiteAdapter;
+use novel_downloader::source::metruyenhot::{
+    Metruyenhot, discover_last_chapter_number_from_html, extract_full_chapter_text,
 };
+
+/// Highest chapter number the adapter's index reaches for `base_url`, which
+/// is what the old `discover_last_chapter_number` returned.
+async fn discover_last_chapter_number(base_url: &str) -> anyhow::Result<u32> {
+    let novel = Metruyenhot.fetch_novel(base_url).await?;
+    novel
+        .chapters
+        .last()
+        .map(|chapter| chapter.number)
+        .ok_or_else(|| anyhow::anyhow!("empty chapter index for {base_url}"))
+}
 
 #[test]
 fn escape_html_replaces_special_characters() {
@@ -337,7 +349,7 @@ fn discover_last_chapter_number_from_html_errors_when_no_chuong_links() {
 
 #[test]
 fn find_last_page_url_resolves_relative_href_against_main_url() {
-    use novel_downloader::crawler::find_last_page_url;
+    use novel_downloader::source::metruyenhot::find_last_page_url;
     let html = r#"<html><body><div class="pagination"><ul>
         <li class="nexts"><a href="?page=48"></a></li>
     </ul></div></body></html>"#;
@@ -347,7 +359,7 @@ fn find_last_page_url_resolves_relative_href_against_main_url() {
 
 #[test]
 fn find_last_page_url_returns_none_for_single_page_chapter_list() {
-    use novel_downloader::crawler::find_last_page_url;
+    use novel_downloader::source::metruyenhot::find_last_page_url;
     let html = r#"<html><body><a href="/foo/chuong-1/">c1</a></body></html>"#;
     assert!(find_last_page_url(html, "https://metruyenhotvn.com/foo/").is_none());
 }
@@ -356,7 +368,7 @@ fn find_last_page_url_returns_none_for_single_page_chapter_list() {
 fn max_chapter_in_html_ignores_chuong_links_under_a_different_novel_slug() {
     // A chuong link whose path does not start with the novel's own slug is
     // rejected — that's a link to a different novel listed on the same page.
-    use novel_downloader::crawler::max_chapter_in_html;
+    use novel_downloader::source::metruyenhot::max_chapter_in_html;
     let html = r#"<html><body>
         <a href="/different-novel/chuong-9999/">other novel</a>
         <a href="/foo/chuong-42/">c42</a>
@@ -370,7 +382,7 @@ fn max_chapter_in_html_accepts_chuong_links_on_any_host_with_matching_slug() {
     // metruyenhotvn.com's paginated pages legitimately render chuong hrefs
     // on a sibling host (metruyenhotne.com) while keeping the novel slug
     // intact. As long as the slug matches, accept any host.
-    use novel_downloader::crawler::max_chapter_in_html;
+    use novel_downloader::source::metruyenhot::max_chapter_in_html;
     let html = r#"<html><body>
         <a href="https://metruyenhotne.com/foo/chuong-2351/">c2351</a>
         <a href="https://metruyenhotne.com/foo/chuong-2376/">c2376</a>
@@ -384,7 +396,7 @@ fn max_chapter_in_html_accepts_chuong_links_on_any_host_with_matching_slug() {
 /// template-compatible across hosts.
 #[test]
 fn extract_full_chapter_text_handles_metruyenhot_chapter_fixture() {
-    use novel_downloader::crawler::extract_full_chapter_text;
+    use novel_downloader::source::metruyenhot::extract_full_chapter_text;
     let html = std::fs::read_to_string("tests/fixtures/metruyenhot_chapter.html").unwrap();
     let content = extract_full_chapter_text(&html).expect("parser should accept metruyenhot");
     assert!(
@@ -415,7 +427,7 @@ fn extract_full_chapter_text_handles_metruyenhot_chapter_fixture() {
 /// `chuong-N` link found on a real metruyenhotvn.com novel page.
 #[test]
 fn discover_last_chapter_number_handles_metruyenhot_novel_fixture() {
-    use novel_downloader::crawler::discover_last_chapter_number_from_html;
+    use novel_downloader::source::metruyenhot::discover_last_chapter_number_from_html;
     let html = std::fs::read_to_string("tests/fixtures/metruyenhot_novel.html").unwrap();
     let n = discover_last_chapter_number_from_html(
         &html,

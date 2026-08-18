@@ -1,9 +1,9 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use crate::utils::{ensure_dir, fetch_html, file_exists, sleep_seconds, slugify};
+use crate::utils::{ensure_dir, file_exists, sleep_seconds, slugify};
 
-use super::parser::{build_html_document, extract_full_chapter_text};
+use super::parser::build_html_document;
 use super::types::{
     CrawlChapterParams, CrawlResult, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy,
 };
@@ -88,6 +88,7 @@ async fn save_chapter_file(
 /// when the destination already exists.
 pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult> {
     let CrawlChapterParams {
+        adapter,
         chapter,
         output_root,
         if_exists,
@@ -117,13 +118,7 @@ pub async fn crawl_chapter(params: CrawlChapterParams<'_>) -> Result<CrawlResult
         }
     }
 
-    let url = &chapter.locator;
-    let full_html = fetch_html(url).await?;
-    let parsed = extract_full_chapter_text(&full_html)?;
-
-    if parsed.paragraphs.is_empty() {
-        return Err(anyhow!("No chapter content extracted from {url}"));
-    }
+    let parsed = adapter.fetch_chapter(chapter).await?;
 
     let html_doc = build_html_document(
         &parsed.novel_title,

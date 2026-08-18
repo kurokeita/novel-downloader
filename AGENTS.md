@@ -28,7 +28,7 @@ cargo build --release           # → target/release/novel-downloader
 # tests (123 currently)
 cargo test                      # everything
 cargo test --test runner        # one integration file
-cargo test build_chapter_url    # one test by name pattern
+cargo test resolve             # one test by name pattern
 cargo test -- --nocapture       # surface println/eprintln
 
 # lint and format
@@ -63,30 +63,43 @@ The library is a small layered crate where each module has a single role:
 
 ``` shell
 cli       ─────────────┐
-                       ├─→ runner ─→ crawler/* ─→ utils  (text, http, fs)
-ui/* (ratatui)  ───────┘                       ↘ epub/*  ─→ font (TTF parsing)
+                       ├─→ runner ─→ crawler/* ─→ source/* ─→ utils (http, fs)
+ui/* (ratatui)  ───────┘                       ↘ epub/*   ─→ font (TTF parsing)
 ```
 
-`crawler`, `epub`, and `ui` are directory modules; the entries below list
-each submodule's role.
+`crawler`, `epub`, `source` and `ui` are directory modules; the entries
+below list each submodule's role.
 
 - **`utils`** (`src/utils.rs`) — pure helpers (`clean_text`, `is_noise`,
-  `slugify`, `build_chapter_url`, `find_font_file`) plus reqwest-backed
+  `slugify`, `find_font_file`) plus reqwest-backed
   `fetch_html`/`download_binary` and async fs primitives. Everything
   I/O-related funnels through here so tests can swap in `mockito` and
   `tempfile`.
 
-- **`crawler/`** — split across four files, re-exported from
+- **`source/`** — the site seam. Adding a site touches only its own
+  module and the registry:
+  - `mod.rs` — the object-safe `SiteAdapter` trait (`async-trait`) plus
+    `Novel`, `ChapterRef`, `ChapterContent`, `RatePolicy` and
+    `SourceError` (typed `RateLimited` / `NotFound` / `ClientRejected` /
+    `Unentitled`, everything else stays `anyhow` behind `Other`).
+  - `registry.rs` — `resolve(url, allow_any_host)` maps a normalized
+    host (lower-cased, `www.`-stripped) to its adapter, and
+    `validate_url` wraps it for the wizard. Replaces the old
+    `sites.rs` allowlist.
+  - `metruyenhot/` — the only adapter today. `parser.rs` holds the
+    `scraper` selectors, noise filtering, consecutive-line dedup and the
+    JS-hidden `contentS` splice; `discovery.rs` walks the chapter-list
+    pagination for the highest chapter number; `metadata.rs` holds the
+    five main-page extractors. `fetch_novel` fetches the main page once,
+    discovers `N`, and synthesizes refs `1..=N` whose locators are
+    `<novel>/chuong-<n>/`.
+
+- **`crawler/`** — split across three files, re-exported from
   `crawler/mod.rs`:
-  - `parser.rs` — `scraper`-based HTML parsing, noise filtering,
-    consecutive-line dedup, JS-hidden paragraph extraction,
-    `build_html_document`, `escape_html`, `extract_full_chapter_text`,
-    `NON_CONTENT_ATTRS`.
+  - `parser.rs` — `build_html_document` and `escape_html`: the
+    source-independent on-disk chapter document format.
   - `chapter.rs` — `crawl_chapter` orchestrator that owns the
-    fetch-write-skip flow.
-  - `discovery.rs` — `discover_last_chapter_number` (walks the
-    "Chương Mới Nhất" section) and the pure
-    `discover_last_chapter_number_from_html` helper.
+    fetch-write-skip flow, delegating the fetch to the adapter.
   - `types.rs` — `CrawlChapterParams`, `CrawlResult`, `CrawlStatus`,
     `ExistingChapterDecision`, and the **existing-file policy state
     machine** (`ExistingFilePolicy::Ask` / `Skip` / `Overwrite` /
@@ -94,7 +107,8 @@ each submodule's role.
     the stdin readline can plug in.
 
 - **`runner`** (`src/runner.rs`) — `crawl_chapters_sequential` and
-  `crawl_chapters_parallel` consume chapter ranges and call
+  `crawl_chapters_parallel` consume a `Vec<ChapterRef>` plus the
+  resolved adapter and call
   `crawl_chapter` repeatedly via `SequentialParams` / `ParallelParams`.
   **Sequential propagates `SkipAll` run-wide** so once a user picks
   "skip all" the rest of the run never prompts again. Both runners emit
@@ -105,8 +119,8 @@ each submodule's role.
 
 - **`epub/`** — split across four files, re-exported from
   `epub/mod.rs`:
-  - `metadata.rs` — main-page extractors for title, author, status,
-    description, cover URL, plus `pick_cover_extension`.
+  - `metadata.rs` — `pick_cover_extension` only; the main-page
+    extractors moved to the metruyenhot adapter.
   - `chapters.rs` — `list_chapter_files`,
     `extract_title_and_body_from_saved_chapter`, `SavedChapter`.
   - `package.rs` — XHTML/NCX/OPF/nav builders (`chapter_xhtml`,
