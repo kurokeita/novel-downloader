@@ -49,12 +49,15 @@ async fn build_non_interactive_plan(
 ) -> Result<InteractivePlan> {
     let mut chapter_numbers: Option<Vec<u32>> = None;
     let mut chapters: Vec<ChapterRef> = Vec::new();
-    let mut novel_title: Option<String> = None;
+
+    // Fetched even for `--epub-only`: the EPUB writer takes its metadata from
+    // here rather than reading the main page itself.
+    let novel = adapter.fetch_novel(&base_url).await?;
+    let novel_title = Some(novel.title.clone());
+    let novel_author = novel.author.clone();
+    let novel_cover_url = novel.cover_url.clone();
 
     if !options.epub_only {
-        let novel = adapter.fetch_novel(&base_url).await?;
-        novel_title = Some(novel.title);
-
         let last = novel.chapters.last().map(|chapter| chapter.number);
         let start = options.start.unwrap_or(1);
         let mut end = match (options.end, last) {
@@ -105,7 +108,8 @@ async fn build_non_interactive_plan(
         if_exists: options.if_exists,
         fast_skip: options.fast_skip,
         novel_title,
-        novel_author: None,
+        novel_author,
+        novel_cover_url,
     })
 }
 
@@ -171,14 +175,12 @@ fn make_progress_callback(bar: ProgressBar) -> ProgressCallback {
 }
 
 /// Resolve the per-novel chapter directory used for an `epub_only` run when
-/// no explicit `--chapter-dir` was provided.
-async fn infer_chapter_dir(
-    base_url: &str,
-    output_root: &std::path::Path,
-    adapter: &'static dyn SiteAdapter,
-) -> Result<PathBuf> {
-    let novel = adapter.fetch_novel(base_url).await?;
-    Ok(output_root.join(slugify(&novel.title, "book")))
+/// no explicit `--chapter-dir` was provided. Uses the title the plan already
+/// carries, so no second main-page fetch is needed.
+fn infer_chapter_dir(novel_title: Option<&str>, output_root: &std::path::Path) -> Result<PathBuf> {
+    let title = novel_title
+        .ok_or_else(|| anyhow::anyhow!("no novel title available to derive the directory from"))?;
+    Ok(output_root.join(slugify(title, "book")))
 }
 
 /// Drive a chapter run with an indicatif progress bar (non-interactive mode).
@@ -363,7 +365,7 @@ async fn execute_plan(
     if plan.mode == CrawlMode::EpubOnly {
         output_dir = match plan.chapter_dir.clone() {
             Some(dir) => Some(dir),
-            None => match infer_chapter_dir(&plan.base_url, &plan.output_root, adapter).await {
+            None => match infer_chapter_dir(plan.novel_title.as_deref(), &plan.output_root) {
                 Ok(p) => Some(p),
                 Err(error) => {
                     eprintln!("[FAIL] Could not infer chapter directory: {}", error);
@@ -493,6 +495,14 @@ async fn execute_plan(
         };
         let novel_main_url = format!("{}/", plan.base_url.trim_end_matches('/'));
         let font_path = plan.font_path.clone();
+        // "Unknown Novel" matches what the main-page extractor produced when a
+        // page carried no usable title.
+        let novel_title = plan
+            .novel_title
+            .clone()
+            .unwrap_or_else(|| "Unknown Novel".to_string());
+        let novel_author = plan.novel_author.clone();
+        let cover_url = plan.novel_cover_url.clone();
         // In interactive mode the wizard collected (and let the user edit) the
         // title/author, so pass them through verbatim. Non-interactive runs
         // leave this `None` and let `build_epub` extract from the page.
@@ -506,6 +516,9 @@ async fn execute_plan(
         let build_future = async move {
             build_epub(BuildEpubParams {
                 novel_main_url,
+                novel_title,
+                novel_author,
+                cover_url,
                 chapter_dir,
                 output_epub: None,
                 font_path,

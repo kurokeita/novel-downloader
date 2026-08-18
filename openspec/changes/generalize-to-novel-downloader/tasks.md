@@ -34,7 +34,7 @@ Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the
 - [x] 3.1 Create `src/source/metruyenhot/` and move `crawler/parser.rs` selector logic into it as private helpers
 - [x] 3.2 Move `crawler/discovery.rs` (pagination scan, `max_chapter_in_html`) into the adapter; use it to build the chapter index
 - [x] 3.3 Move the five `epub/metadata.rs` main-page extractors (title, status, description, author, cover URL) into the adapter and call them from `fetch_novel`
-- [ ] 3.4 Relocate `pick_cover_extension` into the EPUB layer (`epub/build.rs` or a new `epub/cover.rs`) rather than into the adapter, keeping it public and keeping its three `tests/epub.rs` tests unchanged; only then delete `src/epub/metadata.rs` and drop it from `epub/mod.rs`'s re-exports
+- [x] 3.4 Relocate `pick_cover_extension` into the EPUB layer (`epub/build.rs` or a new `epub/cover.rs`) rather than into the adapter, keeping it public and keeping its three `tests/epub.rs` tests unchanged; only then delete `src/epub/metadata.rs` and drop it from `epub/mod.rs`'s re-exports
 - [x] 3.5 Implement `fetch_novel`: discover the highest chapter number, then synthesize `ChapterRef`s `1..=N` whose locators are the chapter URLs `build_chapter_url` used to derive; delete `utils::build_chapter_url`. **PR 3 already wrote that synthesis as `utils::chapter_index`; move it into `fetch_novel` rather than writing it again, then delete both it and `build_chapter_url`**
 - [x] 3.6 Implement `fetch_chapter` from the moved parser; return `ChapterContent` (title + ordered paragraphs)
 - [x] 3.7 Declare a permissive `RatePolicy` that is a no-op for current users
@@ -53,9 +53,9 @@ Already landed by PR 3, so PR 4 does not repeat it: `ChapterRef` exists in `src/
 - [ ] 4.5 Add a shared retry wrapper in the runner: on `SourceError::RateLimited`, back off with increasing delay, retry up to `policy.max_retries`, and slow the whole run rather than the single chapter
 - [ ] 4.6 Enforce `policy.min_delay` between requests
 - [ ] 4.7 Report exhausted retries as a failure that names rate limiting; report `Unentitled` chapters distinctly and let the run continue
-- [ ] 4.8 Change `BuildEpubParams` to carry `Novel` metadata so `epub/build.rs` stops calling `fetch_html` and the five extractors; **keep the `novel_main_url` field**, which `build.rs` also uses as the OPF `dc:identifier` and the NCX source URL
-- [ ] 4.9 Keep `metadata_override` and its current precedence: an interactive title/author override still wins, with `Novel` replacing the main page as the fallback source
-- [ ] 4.10 Confirm `epub/package.rs`, `epub/chapters.rs` and `font.rs` need no edits, and that a rebuilt EPUB for an already-downloaded novel is byte-identical to a pre-refactor one
+- [x] 4.8 Change `BuildEpubParams` to carry `Novel` metadata so `epub/build.rs` stops calling `fetch_html` and the five extractors; **keep the `novel_main_url` field**, which `build.rs` also uses as the OPF `dc:identifier` and the NCX source URL
+- [x] 4.9 Keep `metadata_override` and its current precedence: an interactive title/author override still wins, with `Novel` replacing the main page as the fallback source
+- [x] 4.10 Confirm `epub/package.rs`, `epub/chapters.rs` and `font.rs` need no edits, and that a rebuilt EPUB for an already-downloaded novel is byte-identical to a pre-refactor one
 - [x] 4.11 Add a `source: &'a str` (or equivalent) field to `ui::plan::SummaryParams`, populate it from the resolved adapter's `display_name()`, and render it in `build_summary`; add no wizard step
 - [ ] 4.12 Verify `tests/runner.rs`, `tests/epub.rs`, `tests/ui.rs`, `tests/cli.rs` and `tests/crawl_chapter.rs` pass
 

@@ -119,15 +119,18 @@ below list each submodule's role.
 
 - **`epub/`** — split across four files, re-exported from
   `epub/mod.rs`:
-  - `metadata.rs` — `pick_cover_extension` only; the main-page
-    extractors moved to the metruyenhot adapter.
+  - `cover.rs` — `pick_cover_extension` only; the main-page
+    extractors live in the metruyenhot adapter.
   - `chapters.rs` — `list_chapter_files`,
     `extract_title_and_body_from_saved_chapter`, `SavedChapter`.
   - `package.rs` — XHTML/NCX/OPF/nav builders (`chapter_xhtml`,
     `title_page_xhtml`, `nav_xhtml`, `ncx_xml`, `content_opf`,
     `ChapterEntry`, `ContentOpfParams`).
   - `build.rs` — `build_epub` + `BuildEpubParams`: ties metadata,
-    chapters, and package together and zips an EPUB 3 (mimetype is the
+    chapters, and package together and zips an EPUB 3. Title, author and
+    cover URL arrive on `BuildEpubParams` (from `Novel`), so the writer
+    reads no HTML; `novel_main_url` stays as the OPF `dc:identifier` and
+    NCX source URL (mimetype is the
     first STORE-compressed entry per spec). Bundled `Bokerlam.ttf` is
     embedded when present; cover extension is picked first from the
     response Content-Type, then the URL path, then `.jpg`.

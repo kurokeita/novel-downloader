@@ -5,20 +5,17 @@ use zip::CompressionMethod;
 use zip::write::SimpleFileOptions;
 
 use crate::font::{FontMetadata, extract_font_metadata};
-use crate::utils::{download_binary, fetch_html, file_exists, find_font_file};
+use crate::utils::{download_binary, file_exists, find_font_file};
 
 use super::chapters::{extract_title_and_body_from_saved_chapter, list_chapter_files};
-use super::metadata::pick_cover_extension;
+use super::cover::pick_cover_extension;
 use super::package::{
     ChapterEntry, ContentOpfParams, chapter_xhtml, content_opf, nav_xhtml, ncx_xml,
     title_page_xhtml,
 };
-use crate::source::metruyenhot::{
-    extract_author_from_main_page, extract_cover_image_url, extract_novel_title_from_main_page,
-};
 
-/// User-supplied title/author to use verbatim instead of extracting them from
-/// the novel main page. When present, the title and author are taken exactly
+/// User-supplied title/author to use verbatim instead of the metadata the
+/// source reported. When present, the title and author are taken exactly
 /// as given (an `author` of `None` means "no author"), so a deliberately blank
 /// author is respected rather than re-filled from the page.
 pub struct EpubMetadataOverride {
@@ -31,8 +28,8 @@ pub struct EpubMetadataOverride {
 
 impl EpubMetadataOverride {
     /// Build an override from a user-supplied title and author. Returns `None`
-    /// when the title is blank, so a blank title can never bypass page
-    /// extraction and silently produce a `book.epub`. A blank author is
+    /// when the title is blank, so a blank title can never bypass the
+    /// source's own title and silently produce a `book.epub`. A blank author is
     /// normalised to `None` ("no author").
     pub fn new(title: impl Into<String>, author: Option<String>) -> Option<Self> {
         let title = title.into();
@@ -45,16 +42,26 @@ impl EpubMetadataOverride {
 }
 
 pub struct BuildEpubParams {
-    /// Main novel page URL (used for metadata + identifier + cover lookup).
+    /// Main novel page URL. Used as the OPF `dc:identifier` and the NCX
+    /// source URL; the EPUB writer never fetches it.
     pub novel_main_url: String,
+    /// Novel title as the source reported it, used unless
+    /// `metadata_override` supplies one.
+    pub novel_title: String,
+    /// Novel author as the source reported it, used unless
+    /// `metadata_override` supplies one.
+    pub novel_author: Option<String>,
+    /// Absolute cover image URL the source reported, when it has one.
+    pub cover_url: Option<String>,
     /// Directory containing the saved chapter HTML files.
     pub chapter_dir: PathBuf,
     /// Optional explicit output path; defaults to `<chapter_dir>/<slug>.epub`.
     pub output_epub: Option<PathBuf>,
     /// Optional override for the embedded font.
     pub font_path: Option<PathBuf>,
-    /// Optional title/author override. When `None`, both are extracted from
-    /// the novel main page (the default, non-interactive behavior).
+    /// Optional title/author override. When `None`, both come from
+    /// `novel_title` / `novel_author` (the default, non-interactive
+    /// behavior).
     pub metadata_override: Option<EpubMetadataOverride>,
 }
 
@@ -99,8 +106,9 @@ pub fn epub_file_stem(title: &str, author: Option<&str>) -> String {
 }
 
 /// Assemble the EPUB archive at `output_epub` from previously-saved chapter
-/// HTML files in `chapter_dir`. Fetches the novel main page for metadata +
-/// cover, embeds the font when available, and returns the final output path.
+/// HTML files in `chapter_dir`. Metadata and the cover URL arrive with the
+/// params, so no HTML is read here; downloads the cover, embeds the font when
+/// available, and returns the final output path.
 pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
     let chapter_dir =
         std::fs::canonicalize(&params.chapter_dir).unwrap_or_else(|_| params.chapter_dir.clone());
@@ -111,20 +119,15 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
         ));
     }
 
-    let main_html = fetch_html(&params.novel_main_url).await?;
     let (novel_title, author) = match &params.metadata_override {
         Some(meta) => (meta.title.clone(), meta.author.clone()),
-        None => (
-            extract_novel_title_from_main_page(&main_html),
-            extract_author_from_main_page(&main_html),
-        ),
+        None => (params.novel_title.clone(), params.novel_author.clone()),
     };
 
-    let cover_url = extract_cover_image_url(&params.novel_main_url, &main_html);
     let mut cover_bytes: Option<Vec<u8>> = None;
     let mut cover_ext = ".jpg".to_string();
     let mut cover_media_type = "image/jpeg".to_string();
-    if let Some(url) = &cover_url
+    if let Some(url) = &params.cover_url
         && let Ok(downloaded) = download_binary(url).await
     {
         cover_bytes = Some(downloaded.content);

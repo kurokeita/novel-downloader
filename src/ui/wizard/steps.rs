@@ -146,6 +146,7 @@ struct DiscoveredNovel {
     title: Option<String>,
     chapters: Vec<ChapterRef>,
     author: Option<String>,
+    cover_url: Option<String>,
     last_chapter: Option<u32>,
     status: Option<String>,
     description: Option<String>,
@@ -169,6 +170,7 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
             Ok::<DiscoveredNovel, String>(DiscoveredNovel {
                 title: Some(novel.title),
                 author: novel.author,
+                cover_url: novel.cover_url,
                 last_chapter: novel.chapters.last().map(|chapter| chapter.number),
                 chapters: novel.chapters,
                 status: novel.status,
@@ -198,6 +200,7 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
     };
     state.novel_title = novel.title;
     state.novel_author = novel.author;
+    state.novel_cover_url = novel.cover_url;
     state.last_discovered = novel.last_chapter;
     state.chapter_index = novel.chapters;
     state.novel_status = novel.status;
@@ -255,14 +258,19 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
                     .fetch_novel(&url)
                     .await
                     .map_err(|error| format!("Could not read {url}:\n{error}"))?;
-                Ok::<(String, Option<String>), String>((novel.title, novel.author))
+                Ok::<(String, Option<String>, Option<String>), String>((
+                    novel.title,
+                    novel.author,
+                    novel.cover_url,
+                ))
             },
         )
         .await?;
         match outcome {
-            PromptOutcome::Submitted(Ok((title, author))) => {
+            PromptOutcome::Submitted(Ok((title, author, cover_url))) => {
                 state.novel_title = Some(title);
                 state.novel_author = author;
+                state.novel_cover_url = cover_url;
             }
             // Surface the failure; the user can still type the title by hand.
             PromptOutcome::Submitted(Err(message)) => {
@@ -603,6 +611,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
             fast_skip: state.fast_skip,
             novel_title: state.novel_title.clone(),
             novel_author: state.novel_author.clone(),
+            novel_cover_url: state.novel_cover_url.clone(),
         }))),
         PromptOutcome::Submitted(false) => Ok(StepResult::Next(previous)),
         PromptOutcome::Back => Ok(StepResult::Next(previous)),
