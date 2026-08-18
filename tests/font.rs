@@ -1,5 +1,5 @@
+use novel_downloader::font::extract_font_metadata;
 use std::path::PathBuf;
-use truyenazz_crawler::font::extract_font_metadata;
 
 /// Path to the bundled Bokerlam.ttf used for the EPUB embed in production.
 fn bundled_font_path() -> PathBuf {

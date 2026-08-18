@@ -1,5 +1,4 @@
-use std::io::{Cursor, Read};
-use truyenazz_crawler::epub::{
+use novel_downloader::epub::{
     BuildEpubParams, ChapterEntry, ContentOpfParams, EpubMetadataOverride, build_epub,
     chapter_xhtml, content_opf, epub_file_stem, extract_author_from_main_page,
     extract_cover_image_url, extract_novel_description_from_main_page,
@@ -7,6 +6,7 @@ use truyenazz_crawler::epub::{
     extract_title_and_body_from_saved_chapter, list_chapter_files, nav_xhtml, ncx_xml,
     pick_cover_extension, title_page_xhtml,
 };
+use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
 #[test]

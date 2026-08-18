@@ -92,7 +92,7 @@ pub(crate) fn styled_block(title: &str) -> Block<'_> {
 pub(crate) fn header_paragraph() -> Paragraph<'static> {
     let banner = Line::from(vec![
         Span::styled(
-            " truyenazz-crawl ",
+            " novel-downloader ",
             Style::default()
                 .fg(Color::Black)
                 .bg(palette::PRIMARY)

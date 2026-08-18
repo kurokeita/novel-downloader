@@ -1,11 +1,11 @@
 ---
 name: release
-description: This skill should be used when the user asks to "cut a release", "release a new version", "bump the version", "publish a release", "create a GitHub release", "tag a release", or "ship vX.Y.Z" for truyenazz-crawler. Documents the end-to-end release workflow — semver decision, version-bump PR, tag-triggered CI build, and GitHub release notes.
+description: This skill should be used when the user asks to "cut a release", "release a new version", "bump the version", "publish a release", "create a GitHub release", "tag a release", or "ship vX.Y.Z" for novel-downloader. Documents the end-to-end release workflow — semver decision, version-bump PR, tag-triggered CI build, and GitHub release notes.
 ---
 
-# Releasing truyenazz-crawler
+# Releasing novel-downloader
 
-This skill documents how a release is cut for `truyenazz-crawler`. The
+This skill documents how a release is cut for `novel-downloader`. The
 process is: bump the crate version on a branch, merge a clean
 `chore(release):` PR, then push a `vX.Y.Z` tag. The tag push is what does
 the real work — it triggers `.github/workflows/release.yml`, which builds
@@ -90,13 +90,13 @@ The tag must match `v*` (the workflow trigger) and the bumped crate version.
 
 1. **build** — cross-compiles for `linux-x86_64`, `linux-aarch64`,
    `macos-x86_64`, `macos-aarch64`, `windows-x86_64`; packages each as
-   `truyenazz-crawl-<label>.{tar.gz,zip}`; creates the release if it does
+   `novel-downloader-<label>.{tar.gz,zip}`; creates the release if it does
    not exist (`gh release create … --notes ""`, i.e. **empty notes**) and
    uploads the asset with `--clobber`.
-2. **publish-homebrew** — renders `Formula/truyenazz-crawler.rb` with fresh
+2. **publish-homebrew** — renders `Formula/novel-downloader.rb` with fresh
    SHA-256s and pushes it to `kurokeita/homebrew-brew` (needs
    `HOMEBREW_TAP_TOKEN`).
-3. **publish-winget** — submits the manifest for `Kurokeita.TruyenazzCrawler`
+3. **publish-winget** — submits the manifest for `Kurokeita.NovelDownloader`
    (needs `WINGET_TOKEN`).
 
 Watch it:

@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use truyenazz_crawler::crawler::CrawlStatus;
-use truyenazz_crawler::crawler::ExistingFilePolicy;
-use truyenazz_crawler::ui::{
+use novel_downloader::crawler::CrawlStatus;
+use novel_downloader::crawler::ExistingFilePolicy;
+use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
     SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, expand_tilde,
     longest_common_prefix, path_completions, prompt_block_height,
@@ -133,7 +133,7 @@ fn select_enter_submits_current_value() {
     let action = select.handle_key(key(KeyCode::Enter));
     assert!(matches!(
         action,
-        truyenazz_crawler::ui::SelectAction::Submit(2)
+        novel_downloader::ui::SelectAction::Submit(2)
     ));
 }
 
@@ -145,10 +145,7 @@ fn select_esc_cancels() {
         hint: None,
     }]);
     let action = select.handle_key(key(KeyCode::Esc));
-    assert!(matches!(
-        action,
-        truyenazz_crawler::ui::SelectAction::Cancel
-    ));
+    assert!(matches!(action, novel_downloader::ui::SelectAction::Cancel));
 }
 
 #[test]
@@ -160,7 +157,7 @@ fn select_ctrl_c_emits_quit() {
     }]);
     let event = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let action = select.handle_key(event);
-    assert!(matches!(action, truyenazz_crawler::ui::SelectAction::Quit));
+    assert!(matches!(action, novel_downloader::ui::SelectAction::Quit));
 }
 
 #[test]

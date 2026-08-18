@@ -1,9 +1,9 @@
-use std::sync::{Arc, Mutex};
-use truyenazz_crawler::crawler::{CrawlStatus, ExistingChapterDecision, ExistingFilePolicy};
-use truyenazz_crawler::runner::{
+use novel_downloader::crawler::{CrawlStatus, ExistingChapterDecision, ExistingFilePolicy};
+use novel_downloader::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, RunnerOutcome, SequentialParams,
     crawl_chapters_parallel, crawl_chapters_sequential,
 };
+use std::sync::{Arc, Mutex};
 
 /// Return a small fake chapter HTML for a given chapter number.
 fn fake_chapter_html(n: u32) -> String {

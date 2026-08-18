@@ -4,25 +4,25 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use truyenazz_crawler::cli::{
+use novel_downloader::cli::{
     CliOptions, RawArgs, chapter_range, from_raw, validate_chapter_range, validate_shared_options,
 };
-use truyenazz_crawler::crawler::{
+use novel_downloader::crawler::{
     CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, discover_last_chapter_number,
 };
-use truyenazz_crawler::epub::{
+use novel_downloader::epub::{
     BuildEpubParams, EpubMetadataOverride, build_epub, extract_novel_title_from_main_page,
 };
-use truyenazz_crawler::runner::{
+use novel_downloader::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, SequentialParams, crawl_chapters_parallel,
     crawl_chapters_sequential,
 };
-use truyenazz_crawler::sites::validate_url;
-use truyenazz_crawler::ui::{
+use novel_downloader::sites::validate_url;
+use novel_downloader::ui::{
     CrawlMode, DownloadProgress, InteractivePlan, make_tui_progress_callback, run_download_screen,
     run_interactive_flow,
 };
-use truyenazz_crawler::utils::{fetch_html, slugify};
+use novel_downloader::utils::{fetch_html, slugify};
 
 /// Non-TUI prompt for existing chapter files. Reads a line from stdin and
 /// maps r/s/a to the [`ExistingChapterDecision`] variants. Defaults to Skip
@@ -185,7 +185,7 @@ async fn run_with_indicatif(
     plan: &InteractivePlan,
     chapters: Vec<u32>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
-) -> Result<truyenazz_crawler::runner::RunnerOutcome, i32> {
+) -> Result<novel_downloader::runner::RunnerOutcome, i32> {
     let bar = build_progress_bar(chapters.len() as u64);
     let progress = make_progress_callback(bar.clone());
     let outcome = if plan.workers <= 1 {
@@ -234,7 +234,7 @@ async fn run_with_tui(
     chapters: Vec<u32>,
     prompt: Arc<dyn Fn(&std::path::Path) -> ExistingChapterDecision + Send + Sync>,
     wait_for_user: bool,
-) -> Result<truyenazz_crawler::runner::RunnerOutcome, i32> {
+) -> Result<novel_downloader::runner::RunnerOutcome, i32> {
     if plan.workers > 1 && plan.if_exists == ExistingFilePolicy::Ask {
         eprintln!("Error: --workers > 1 requires --if-exists skip or --if-exists overwrite.");
         return Err(1);
@@ -320,8 +320,8 @@ fn prompt_failure_action(interactive: bool, failures: &[(u32, String)]) -> Failu
             failures.len(),
             list
         );
-        match truyenazz_crawler::ui::run_confirm("Some chapters failed", &message, true) {
-            Ok(truyenazz_crawler::ui::PromptOutcome::Submitted(true)) => FailureAction::Retry,
+        match novel_downloader::ui::run_confirm("Some chapters failed", &message, true) {
+            Ok(novel_downloader::ui::PromptOutcome::Submitted(true)) => FailureAction::Retry,
             _ => FailureAction::Abort,
         }
     } else {
@@ -416,7 +416,7 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
             match prompt_failure_action(interactive, &failures) {
                 FailureAction::Abort => {
                     if interactive {
-                        let _ = truyenazz_crawler::ui::show_note(
+                        let _ = novel_downloader::ui::show_note(
                             "EPUB skipped",
                             &format!(
                                 "Skipped EPUB build because {} chapter(s) failed.",
@@ -497,16 +497,16 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
             // Stay inside the TUI: a styled "Building EPUB" screen with the
             // shared spinner runs while the build future resolves. Esc/Ctrl+C
             // aborts the build.
-            match truyenazz_crawler::ui::run_loading_screen(
+            match novel_downloader::ui::run_loading_screen(
                 "Building EPUB",
                 "Packaging chapters, font, and cover into an EPUB archive…",
                 build_future,
             )
             .await
             {
-                Ok(truyenazz_crawler::ui::PromptOutcome::Submitted(inner)) => inner,
-                Ok(truyenazz_crawler::ui::PromptOutcome::Back)
-                | Ok(truyenazz_crawler::ui::PromptOutcome::Quit) => {
+                Ok(novel_downloader::ui::PromptOutcome::Submitted(inner)) => inner,
+                Ok(novel_downloader::ui::PromptOutcome::Back)
+                | Ok(novel_downloader::ui::PromptOutcome::Quit) => {
                     eprintln!("[INFO] EPUB build cancelled by user.");
                     return 1;
                 }
@@ -528,17 +528,15 @@ async fn execute_plan(plan: InteractivePlan, interactive: bool) -> i32 {
                             failures.len()
                         ));
                     }
-                    let _ = truyenazz_crawler::ui::show_note("Done", &body);
+                    let _ = novel_downloader::ui::show_note("Done", &body);
                 } else {
                     println!("[OK] EPUB -> {}", path.display());
                 }
             }
             Err(error) => {
                 if interactive {
-                    let _ = truyenazz_crawler::ui::show_note(
-                        "EPUB build failed",
-                        &format!("{}", error),
-                    );
+                    let _ =
+                        novel_downloader::ui::show_note("EPUB build failed", &format!("{}", error));
                 } else {
                     eprintln!("[FAIL] EPUB build failed: {}", error);
                 }

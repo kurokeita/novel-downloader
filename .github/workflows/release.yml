@@ -11,7 +11,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  BIN_NAME: truyenazz-crawl
+  BIN_NAME: novel-downloader
 
 jobs:
   build:
@@ -135,9 +135,9 @@ jobs:
           sha_macos_x86_64=$(sha256sum "/tmp/release/${BIN_NAME}-macos-x86_64.tar.gz" | awk '{print $1}')
           sha_macos_aarch64=$(sha256sum "/tmp/release/${BIN_NAME}-macos-aarch64.tar.gz" | awk '{print $1}')
 
-          cat > Formula/truyenazz-crawler.rb <<EOF
-          class TruyenazzCrawler < Formula
-            desc "Rust crawler and EPUB builder for truyenazz.me novels"
+          cat > Formula/novel-downloader.rb <<EOF
+          class NovelDownloader < Formula
+            desc "Rust crawler and EPUB builder for Vietnamese web novel sites"
             homepage "https://github.com/${REPO}"
             version "${version}"
             license "GPL-3.0-or-later"
@@ -182,16 +182,16 @@ jobs:
           set -euo pipefail
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/kurokeita/homebrew-brew.git" tap
           mkdir -p tap/Formula
-          cp Formula/truyenazz-crawler.rb tap/Formula/truyenazz-crawler.rb
+          cp Formula/novel-downloader.rb tap/Formula/novel-downloader.rb
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/truyenazz-crawler.rb
+          git add Formula/novel-downloader.rb
           if git diff --staged --quiet; then
             echo "Formula unchanged, nothing to push"
             exit 0
           fi
-          git commit -m "truyenazz-crawler ${TAG}"
+          git commit -m "novel-downloader ${TAG}"
           git push
 
   publish-winget:
@@ -207,6 +207,6 @@ jobs:
       - name: Submit manifest
         uses: vedantmgoyal9/winget-releaser@v2
         with:
-          identifier: Kurokeita.TruyenazzCrawler
-          installers-regex: 'truyenazz-crawl-windows-x86_64\.zip$'
+          identifier: Kurokeita.NovelDownloader
+          installers-regex: 'novel-downloader-windows-x86_64\.zip$'
           token: ${{ secrets.WINGET_TOKEN }}

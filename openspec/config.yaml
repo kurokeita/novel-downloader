@@ -4,14 +4,14 @@ context: |
   ## What this project is
 
   A Rust crawler + EPUB builder for Vietnamese novel sites. One crate exposing
-  a library (`truyenazz_crawler`) and one binary (`truyenazz-crawl`) with two
+  a library (`novel_downloader`) and one binary (`novel-downloader`) with two
   surfaces: a clap-driven non-interactive CLI and a ratatui interactive TUI.
   Edition 2024, async on tokio.
 
-  Note: the repo directory is `novel-downloader` but the crate is still
-  `truyenazz-crawler`. The in-flight `generalize-to-novel-downloader` change
-  renames it and introduces a `SiteAdapter` seam; until that change is
-  archived, code on `main` is still single-site (metruyenhot).
+  Note: the crate has been renamed to `novel-downloader`, but the in-flight
+  `generalize-to-novel-downloader` change has not yet introduced the
+  `SiteAdapter` seam; until that change is archived, code on `main` is still
+  single-site (metruyenhot).
 
   ## Module layout
 

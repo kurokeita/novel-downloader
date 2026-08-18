@@ -1,17 +1,18 @@
 [package]
-name = "truyenazz-crawler"
+name = "novel-downloader"
 version = "1.1.0"
 edition = "2024"
-description = "Rust implementation of the TruyenAZZ crawler and EPUB builder"
+description = "Rust crawler and EPUB builder for Vietnamese web novel sites"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/kurokeita/novel-downloader"
 
 [lib]
-name = "truyenazz_crawler"
+name = "novel_downloader"
 path = "src/lib.rs"
 
 [[bin]]
-name = "truyenazz-crawl"
-path = "src/bin/truyenazz-crawl.rs"
+name = "novel-downloader"
+path = "src/bin/novel-downloader.rs"
 
 [dependencies]
 anyhow = "1"

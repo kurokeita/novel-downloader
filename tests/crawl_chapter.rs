@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use truyenazz_crawler::crawler::{
+use novel_downloader::crawler::{
     CrawlChapterParams, CrawlStatus, ExistingChapterDecision, ExistingFilePolicy, crawl_chapter,
 };
+use std::sync::Arc;
 
 /// Minimal HTML body returned by the mock origin server in these tests.
 fn fake_chapter_html(novel: &str, chapter: &str, body: &str) -> String {
