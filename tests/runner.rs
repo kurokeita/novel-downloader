@@ -3,7 +3,22 @@ use novel_downloader::runner::{
     ParallelParams, ProgressCallback, ProgressEvent, RunnerOutcome, SequentialParams,
     crawl_chapters_parallel, crawl_chapters_sequential,
 };
+use novel_downloader::source::ChapterRef;
 use std::sync::{Arc, Mutex};
+
+/// Chapter refs pointing at the mock origin server's chapters. Built as
+/// literals rather than derived from a base URL, since the runner is not
+/// supposed to know how a locator is constructed.
+fn chapter_refs(server_url: &str, numbers: &[u32]) -> Vec<ChapterRef> {
+    numbers
+        .iter()
+        .map(|&number| ChapterRef {
+            number,
+            title: None,
+            locator: format!("{}/foo/chuong-{}/", server_url, number),
+        })
+        .collect()
+}
 
 /// Return a small fake chapter HTML for a given chapter number.
 fn fake_chapter_html(n: u32) -> String {
@@ -34,8 +49,7 @@ async fn sequential_writes_each_requested_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome: RunnerOutcome = crawl_chapters_sequential(SequentialParams {
-        chapter_numbers: vec![1, 2],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         delay: 0.0,
@@ -68,8 +82,7 @@ async fn sequential_collects_failures_per_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_sequential(SequentialParams {
-        chapter_numbers: vec![1, 2],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         delay: 0.0,
@@ -111,8 +124,7 @@ async fn sequential_propagates_skip_all_decision() {
 
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::SkipAll);
     let outcome = crawl_chapters_sequential(SequentialParams {
-        chapter_numbers: vec![1, 2],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Ask,
         delay: 0.0,
@@ -152,8 +164,7 @@ async fn parallel_runs_all_chapters_with_multiple_workers() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_parallel(ParallelParams {
-        chapter_numbers: vec![1, 2, 3, 4],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2, 3, 4]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 3,
@@ -192,8 +203,7 @@ async fn parallel_collects_failures_sorted_by_chapter() {
     let dir = tempfile::tempdir().unwrap();
     let prompt = Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip);
     let outcome = crawl_chapters_parallel(ParallelParams {
-        chapter_numbers: vec![1, 2, 3],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2, 3]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 2,
@@ -229,8 +239,7 @@ async fn sequential_emits_progress_events_for_each_chapter() {
     let progress: ProgressCallback = Arc::new(move |event| captured.lock().unwrap().push(event));
 
     let _ = crawl_chapters_sequential(SequentialParams {
-        chapter_numbers: vec![1, 2],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         delay: 0.0,
@@ -294,8 +303,7 @@ async fn parallel_emits_progress_events_for_each_chapter() {
     let progress: ProgressCallback = Arc::new(move |event| captured.lock().unwrap().push(event));
 
     let _ = crawl_chapters_parallel(ParallelParams {
-        chapter_numbers: vec![1, 2, 3],
-        base_url: format!("{}/foo", server.url()),
+        chapters: chapter_refs(&server.url(), &[1, 2, 3]),
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 2,

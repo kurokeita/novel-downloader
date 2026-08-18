@@ -436,7 +436,7 @@ pub(super) fn step_if_exists(state: &mut WizardState) -> Result<StepResult> {
     };
     let outcome = run_select(
         "If chapter exists",
-        "Pick a behaviour for existing chapter files.",
+        "Pick a behavior for existing chapter files.",
         Select::with_initial(allowed, &initial_policy),
     )?;
     advance_or_back!(outcome, WizardStep::Delay, |value| {

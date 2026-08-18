@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use unicode_normalization::UnicodeNormalization;
 
+use crate::source::ChapterRef;
+
 /// Browser-style User-Agent header sent on every outbound HTTP request.
 pub const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36";
 
@@ -101,6 +103,20 @@ pub fn slugify(text: &str, fallback: &str) -> String {
 pub fn build_chapter_url(base_url: &str, chapter_number: u32) -> String {
     let trimmed = base_url.trim_end_matches('/');
     format!("{}/chuong-{}/", trimmed, chapter_number)
+}
+
+/// Build a chapter index for `numbers`, pairing each with the URL
+/// [`build_chapter_url`] derives for it. Titles are left `None` because
+/// metruyenhot only reveals a chapter's title once the chapter is fetched.
+pub fn chapter_index(base_url: &str, numbers: &[u32]) -> Vec<ChapterRef> {
+    numbers
+        .iter()
+        .map(|&number| ChapterRef {
+            number,
+            title: None,
+            locator: build_chapter_url(base_url, number),
+        })
+        .collect()
 }
 
 /// Construct a reqwest client preconfigured with our User-Agent and timeout.

@@ -74,7 +74,7 @@ pub(crate) mod palette {
     pub const DANGER: Color = Color::Rgb(255, 105, 130);
 }
 
-/// Build a rounded, primary-coloured block with the supplied title.
+/// Build a rounded, primary-colored block with the supplied title.
 pub(crate) fn styled_block(title: &str) -> Block<'_> {
     Block::default()
         .borders(Borders::ALL)

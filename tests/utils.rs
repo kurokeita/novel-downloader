@@ -1,6 +1,6 @@
 use novel_downloader::utils::{
-    build_chapter_url, clean_text, download_binary, ensure_dir, fetch_html, file_exists,
-    find_font_file, is_noise, sleep_seconds, slugify,
+    build_chapter_url, chapter_index, clean_text, download_binary, ensure_dir, fetch_html,
+    file_exists, find_font_file, is_noise, sleep_seconds, slugify,
 };
 use std::time::Duration;
 
@@ -88,6 +88,23 @@ fn build_chapter_url_appends_chapter_segment() {
         build_chapter_url("https://metruyenhotvn.com/foo", 7),
         "https://metruyenhotvn.com/foo/chuong-7/"
     );
+}
+
+#[test]
+fn chapter_index_pairs_each_number_with_its_locator() {
+    let index = chapter_index("https://metruyenhotvn.com/foo", &[3, 4]);
+
+    assert_eq!(index.len(), 2);
+    assert_eq!(index[0].number, 3);
+    assert_eq!(index[0].title, None);
+    assert_eq!(index[0].locator, "https://metruyenhotvn.com/foo/chuong-3/");
+    assert_eq!(index[1].number, 4);
+    assert_eq!(index[1].locator, "https://metruyenhotvn.com/foo/chuong-4/");
+}
+
+#[test]
+fn chapter_index_is_empty_for_an_empty_range() {
+    assert!(chapter_index("https://metruyenhotvn.com/foo", &[]).is_empty());
 }
 
 #[test]
