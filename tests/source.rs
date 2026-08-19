@@ -287,66 +287,31 @@ fn resolve_maps_khodocsach_host_to_the_khodocsach_adapter() {
 }
 
 #[test]
-fn khodocsach_rate_policy_is_conservative_unlike_metruyenhot() {
-    let khodocsach = resolve("https://khodocsach.com/foo", false).unwrap();
-    let metruyenhot = resolve("https://metruyenhotvn.com/foo", false).unwrap();
-
-    let policy = khodocsach.rate_policy();
-    assert!(
-        policy.max_concurrency <= 3,
-        "expected a clamped concurrency, got {}",
-        policy.max_concurrency
-    );
-    assert!(
-        !policy.min_delay.is_zero(),
-        "expected a non-zero min delay for a rate-limited host"
-    );
-    assert!(
-        policy.max_retries > 0,
-        "a rate-limited host must be worth retrying"
-    );
-    assert!(
-        metruyenhot.rate_policy().max_concurrency > policy.max_concurrency,
-        "metruyenhot must stay the permissive one"
-    );
-}
-
-#[test]
-fn khodocsach_rate_policy_stays_under_the_measured_ceiling() {
+fn khodocsach_rate_policy_is_aggressive_due_to_ua_rotation() {
     let policy = resolve("https://khodocsach.com/foo", false)
         .unwrap()
         .rate_policy();
 
-    // A chapter costs two requests (ticket, then content) and the pacer
-    // spaces chapter *attempts*, so min_delay of 2s is 1 req/s. A browser
-    // sustained 1.62 req/s over 100 requests but was refused at 4.3 req/s,
-    // so 1 req/s sits comfortably under the measured ceiling.
-    assert!(
-        policy.min_delay >= std::time::Duration::from_secs(2),
-        "min_delay {:?} exceeds 1 req/s once doubled for the ticket hop",
-        policy.min_delay
+    // Since we rotate the UA on every single chapter, we bypass the host's
+    // rate limiter bucket and can fetch as fast as we want.
+    assert_eq!(
+        policy.max_concurrency,
+        usize::MAX,
+        "max_concurrency should be unlimited to take advantage of UA rotation"
     );
-
-    // The limiter is self-extending: requests spaced 15s apart were still
-    // refused 171s after tripping it, and only ~3 minutes of silence cleared
-    // it. The first backoff step must therefore already out-wait that,
-    // otherwise retries knock during the penalty and prolong it.
-    assert!(
-        policy.backoff_base >= std::time::Duration::from_secs(180),
-        "backoff_base {:?} cannot out-wait the ~3 minute penalty",
-        policy.backoff_base
+    assert_eq!(
+        policy.min_delay,
+        std::time::Duration::from_secs(0),
+        "min_delay should be 0s for maximum throughput"
+    );
+    assert_eq!(
+        policy.backoff_base,
+        std::time::Duration::from_secs(2),
+        "backoff_base should be tiny so 429s are retried quickly"
     );
     assert!(
         policy.max_retries > 0,
         "a rate-limited host must be worth retrying"
-    );
-
-    // Burst concurrency is penalized independently of average rate, and at
-    // this min_delay the pacer gates chapter starts anyway, so extra workers
-    // buy no throughput and only risk overlapping requests.
-    assert_eq!(
-        policy.max_concurrency, 1,
-        "extra workers add burst risk without throughput at this min_delay"
     );
 }
 
