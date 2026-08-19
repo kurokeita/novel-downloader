@@ -24,6 +24,16 @@ Constraints discovered by probing khodocsach.com live during exploration:
 - **A rate limiter guards the `/ticket` hop.** Short bursts pass (30 concurrent succeeded), but sustained load does not: 80 chapters at concurrency 8 produced 39 × `429 {"code":"rate_limited"}`, and a follow-up burst 20 seconds later was refused 25/25. No `Retry-After` header is sent. The exact sustainable rate was not established — probing was stopped rather than hammer the host further.
 - Chapter content is plain text containing no HTML tags at all.
 
+Re-probed while implementing the adapter (PR 7), correcting two of the bullets above:
+
+- **The chapter listing is ordered newest-first**, not in reading order: page 1 of an 899-chapter book returned `index` 899 down to 700. The adapter must sort ascending before numbering. The original survey did not record this.
+- **The 403-without-User-Agent behavior no longer reproduces.** A request sending no `User-Agent` header returned `200` with the normal book payload. A browser-style UA is still sent on every request and `403` is still mapped to `ClientRejected`, but that mapping is now defensive rather than load-bearing.
+- The book endpoint returns its payload **unenveloped** (the book object at the top level), while every listing wraps its rows in `{data, pagination}`. `pagination` is `{page, per_page, total, total_pages}`.
+- The chapter-listing route is registered for a **numeric** book id only (`/books/(?P<id>\d+)/chapters`), while the book route accepts a slug (`/books/(?P<id>[\w-]+)`). Resolving the slug to an id is therefore a required first hop, not an optimization.
+- **Book permalinks carry a `.kds` extension that the API slug does not.** `https://khodocsach.com/nguoi-tim-xac.kds/` is the canonical page (200) for the book whose API `slug` is `nguoi-tim-xac`; the bare `/nguoi-tim-xac/` returns 301 to the `.kds` form, and this holds for every book checked. Since the route pattern `[\w-]+` cannot match a dot, passing the permalink segment through unchanged yields `404 rest_no_route`. Slug derivation must split at the first dot.
+- **The listing's `index` field is not always contiguous.** `nguoi-tim-xac` reports 1950 chapters whose indexes span 1..1981, missing 809-814 and 1217-1241. The displayed chapter titles stay continuous across those holes. `ChapterRef.number` carries `index` regardless, so output filenames can skip numbers.
+- The content response carries `can_read: bool`. That is the entitlement signal `Unentitled` maps from; a gated chapter's HTTP status was not probed, since no VIP or purchasable book was available to test against.
+
 ## Goals / Non-Goals
 
 **Goals:**

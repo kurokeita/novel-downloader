@@ -3,3 +3,4 @@ target/
 output/
 docs/superpowers/
 .codegraph/
+.playwright-mcp/

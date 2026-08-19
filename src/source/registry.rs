@@ -5,11 +5,12 @@ use anyhow::{Context, Result, anyhow};
 use url::Url;
 
 use super::SiteAdapter;
+use super::khodocsach::Khodocsach;
 use super::metruyenhot::Metruyenhot;
 
 /// Every compiled-in adapter. Adding a site appends one entry here and
 /// touches nothing else outside its own module.
-static ADAPTERS: &[&dyn SiteAdapter] = &[&Metruyenhot];
+static ADAPTERS: &[&dyn SiteAdapter] = &[&Khodocsach, &Metruyenhot];
 
 /// Hosts accepted with `--allow-any-host`, for local fixtures and the
 /// `mockito`-backed integration tests.
