@@ -1,3 +1,4 @@
+use crate::font::FontMetadata;
 use anyhow::{Context, Result, anyhow};
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -217,6 +218,18 @@ pub async fn file_exists(file_path: &Path) -> bool {
 /// (next to the executable, one directory up, and the current working
 /// directory) for `Bokerlam.ttf`, returning `None` when nothing is found so
 /// callers can fall back to a generic serif family.
+/// Confirm `path` can be read as a font, returning its canonical path and the
+/// metadata extracted from it. Errors when the file is missing, unreadable, or
+/// too small to be a font; a readable-but-malformed font still succeeds because
+/// [`crate::font::extract_font_metadata`] falls back to the file stem.
+pub async fn validate_font_file(path: &Path) -> Result<(PathBuf, FontMetadata)> {
+    let canonical = tokio::fs::canonicalize(path)
+        .await
+        .map_err(|e| anyhow!("Font file not found: {} ({})", path.display(), e))?;
+    let metadata = crate::font::extract_font_metadata(&canonical).await?;
+    Ok((canonical, metadata))
+}
+
 pub async fn find_font_file(explicit_font_path: Option<&Path>) -> Result<Option<PathBuf>> {
     if let Some(path) = explicit_font_path {
         let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());

@@ -184,6 +184,25 @@ below list each submodule's role.
   malformed input it falls back to the file stem so EPUB build never
   crashes.
 
+- **`recent_fonts`** (`src/recent_fonts.rs`) — the only persisted state this
+  crate writes. Remembers the custom EPUB fonts confirmed in the wizard as a
+  recency-ordered list in
+  `$XDG_CONFIG_HOME/novel-downloader/recent-fonts.json` (falling back to
+  `$HOME/.config`, and disabling persistence entirely when neither is set).
+  `load(config_dir)` and `record(config_dir, path)` take the config root
+  explicitly so tests point them at a `tempfile::tempdir()`; only
+  `config_dir()` reads the environment, and `resolve_config_dir` is its pure
+  core so no test has to mutate process-global variables. Each entry caches
+  the canonical path, family name, extension and size, so `load` costs one
+  `stat` per entry and zero font parses — entries are stat'ed concurrently
+  with `futures::join_all` so a stale network mount costs one wait rather
+  than a sum of waits. Anything that fails to stat is pruned silently and the
+  store rewritten; a size mismatch re-parses that one entry in place. Reads
+  are tolerant: a missing, empty or malformed store loads as an empty list.
+  `record` caps the list at `MAX_RECENT_FONTS` (10), dedupes by canonical
+  path, and silently ignores both non-font paths and the bundled
+  `Bokerlam.ttf`.
+
 - **`cli`** (`src/cli.rs`) — clap derive `RawArgs` and a normalized
   `CliOptions` (with `from_raw` for the binary, `parse_from` for tests).
   Holds the validators (`validate_shared_options`,
@@ -292,6 +311,14 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   `ChapterRef.number` is the site's own `index` field, which can contain
   gaps: `nguoi-tim-xac` has 1950 chapters spread over indexes 1..1981, so
   output filenames may skip numbers.
+- **Remembered fonts:** the wizard's `FontChoice` step lists the store's
+  entries between the bundled font and the custom-path option; picking one
+  skips the `FontPath` prompt. The list is validated once per wizard run and
+  cached on `WizardState`, so back-navigation re-renders it without touching
+  the filesystem. `step_font_path` validates on submit via
+  `utils::validate_font_file`, so a bad path is rejected at the prompt rather
+  than at EPUB build time. Recording happens once, in `run_interactive_flow`
+  after `StepResult::Done` — non-interactive runs never write to the store.
 - **Default output:** `./output/<novel_slug>/`. Override with
   `--output-root`.
 - **Fast skip:** when `--fast-skip` is set and the destination chapter

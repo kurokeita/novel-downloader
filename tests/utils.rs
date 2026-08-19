@@ -1,6 +1,6 @@
 use novel_downloader::utils::{
     clean_text, download_binary, ensure_dir, fetch_html, file_exists, find_font_file, is_noise,
-    sleep_seconds, slugify,
+    sleep_seconds, slugify, validate_font_file,
 };
 use std::time::Duration;
 
@@ -172,4 +172,28 @@ async fn download_binary_returns_bytes_and_content_type() {
         .unwrap();
     assert_eq!(result.content, vec![0xFF, 0xD8, 0xFF]);
     assert_eq!(result.content_type, "image/jpeg");
+}
+
+#[tokio::test]
+async fn validate_font_file_returns_canonical_path_and_metadata_for_a_real_font() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Bokerlam.ttf");
+    let (canonical, metadata) = validate_font_file(&path).await.unwrap();
+    assert_eq!(canonical, std::fs::canonicalize(&path).unwrap());
+    assert!(!metadata.family_name.is_empty());
+    assert_eq!(metadata.extension, ".ttf");
+}
+
+#[tokio::test]
+async fn validate_font_file_errors_for_a_missing_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("nope.ttf");
+    assert!(validate_font_file(&missing).await.is_err());
+}
+
+#[tokio::test]
+async fn validate_font_file_errors_for_a_file_that_is_not_a_font() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("notes.txt");
+    tokio::fs::write(&path, b"nope").await.unwrap();
+    assert!(validate_font_file(&path).await.is_err());
 }
