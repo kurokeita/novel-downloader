@@ -170,7 +170,18 @@ below list each submodule's role.
     `extract_title_and_body_from_saved_chapter`, `SavedChapter`.
   - `package.rs` — XHTML/NCX/OPF/nav builders (`chapter_xhtml`,
     `title_page_xhtml`, `nav_xhtml`, `ncx_xml`, `content_opf`,
-    `ChapterEntry`, `ContentOpfParams`).
+    `ChapterEntry`, `ContentOpfParams`). `chapter_xhtml` also opens each
+    chapter with a **drop cap**: `split_drop_cap` NFC-normalizes the first
+    paragraph's leading text (so a decomposed `Ế` becomes one `char` instead
+    of a base letter with its marks stranded) and returns `None` unless that
+    character is alphabetic, which is what skips dialogue openers, entity
+    references, digits, whitespace and empty paragraphs. When it returns a
+    letter, the paragraph is rewritten to
+    `<p class="dropcap-para"><span class="dropcap">X</span>…`. The rewrite is
+    string surgery on `body_html`, not a `scraper` reparse, and it only
+    matches a bare `<p>` whose content starts with text, so any other body
+    shape falls through untouched. Only chapters get the span, which is why
+    the title page needs no scoping selector.
   - `build.rs` — `build_epub` + `BuildEpubParams`: ties metadata,
     chapters, and package together and zips an EPUB 3. Title, author and
     cover URL arrive on `BuildEpubParams` (from `Novel`), so the writer
@@ -178,7 +189,12 @@ below list each submodule's role.
     NCX source URL (mimetype is the
     first STORE-compressed entry per spec). Bundled `Bokerlam.ttf` is
     embedded when present; cover extension is picked first from the
-    response Content-Type, then the URL path, then `.jpg`.
+    response Content-Type, then the URL path, then `.jpg`. `build_main_css`
+    also emits the drop cap rules: `p.dropcap-para { text-indent: 0 }` to
+    cancel the usual `2em` indent, and a `.dropcap` block whose `font-size`,
+    `line-height` and `margin-right` are the tuning knob. Those three can
+    only be measured on a device, so a comment above them says so; raise
+    `line-height` if stacked Vietnamese marks clip into the chapter heading.
 
 - **`font`** (`src/font.rs`) — best-effort TTF `name`-table parser. On
   malformed input it falls back to the file stem so EPUB build never

@@ -1,9 +1,29 @@
+use unicode_normalization::UnicodeNormalization;
+
 use crate::crawler::escape_html;
 
 /// XML escape — same as the crawler's `escape_html` and reused here for
 /// clarity at the call sites.
 fn escape_xml(text: &str) -> String {
     escape_html(text)
+}
+
+/// Split a paragraph's opening text into its drop cap letter and the text
+/// that follows it.
+///
+/// The text is normalized to NFC first: every Vietnamese letter has a
+/// precomposed form, so a letter written as a base character plus combining
+/// marks collapses into one `char` and the marks cannot be stranded outside
+/// the drop cap span. Returns `None` unless the opening character is a
+/// letter, which is also what rejects entity references (`&quot;`), quotation
+/// marks, dashes, digits, whitespace and empty text.
+pub fn split_drop_cap(text: &str) -> Option<(char, String)> {
+    let mut chars = text.nfc();
+    let first = chars.next()?;
+    if !first.is_alphabetic() {
+        return None;
+    }
+    Some((first, chars.collect()))
 }
 
 /// One entry in the EPUB chapter manifest used by the spine/nav/ncx/opf
@@ -18,8 +38,32 @@ pub struct ChapterEntry {
     pub title: String,
 }
 
+/// Rewrite the chapter body so its first paragraph opens with a drop cap,
+/// returning `None` when the body does not have the shape this can safely
+/// touch.
+///
+/// The body is edited as a string rather than reparsed: `scraper`'s tree is
+/// not built for mutation, and reserializing would risk changing escaping and
+/// whitespace across the whole body. The guard only matches a bare `<p>` whose
+/// content starts with text, which is what the crawler emits, so anything
+/// unexpected falls through untouched instead of being rewritten blindly.
+fn apply_drop_cap(body_html: &str) -> Option<String> {
+    const P_OPEN: &str = "<p>";
+    let tag_start = body_html.find(P_OPEN)?;
+    let text_start = tag_start + P_OPEN.len();
+    let after_tag = &body_html[text_start..];
+    let text_end = after_tag.find('<')?;
+    let (cap, remainder) = split_drop_cap(&after_tag[..text_end])?;
+    Some(format!(
+        "{before}<p class=\"dropcap-para\"><span class=\"dropcap\">{cap}</span>{remainder}{after}",
+        before = &body_html[..tag_start],
+        after = &after_tag[text_end..],
+    ))
+}
+
 /// Render the per-chapter XHTML used inside the EPUB.
 pub fn chapter_xhtml(title: &str, body_html: &str) -> String {
+    let body_html = apply_drop_cap(body_html).unwrap_or_else(|| body_html.to_string());
     format!(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
 <!DOCTYPE html>\n\
