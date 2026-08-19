@@ -4,3 +4,4 @@ output/
 docs/superpowers/
 .codegraph/
 .playwright-mcp/
+.claude/worktrees/
