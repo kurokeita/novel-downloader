@@ -1,7 +1,7 @@
 use novel_downloader::epub::{
     BuildEpubParams, ChapterEntry, ContentOpfParams, EpubMetadataOverride, build_epub,
     chapter_xhtml, content_opf, epub_file_stem, extract_title_and_body_from_saved_chapter,
-    list_chapter_files, nav_xhtml, ncx_xml, pick_cover_extension, title_page_xhtml,
+    list_chapter_files, nav_xhtml, ncx_xml, pick_cover_extension, split_drop_cap, title_page_xhtml,
 };
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
@@ -134,7 +134,7 @@ fn chapter_xhtml_wraps_body_in_xhtml_skeleton() {
     assert!(xhtml.starts_with("<?xml"));
     assert!(xhtml.contains("<title>Chương 1</title>"));
     assert!(xhtml.contains("<h1>Chương 1</h1>"));
-    assert!(xhtml.contains("<p>Hello</p>"));
+    assert!(xhtml.contains("<p class=\"dropcap-para\"><span class=\"dropcap\">H</span>ello</p>"));
 }
 
 #[test]
@@ -326,4 +326,172 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
     }
     assert!(opf_text.contains("<dc:creator>Người Viết</dc:creator>"));
     assert!(opf_text.contains("<dc:title>Truyện Đẹp</dc:title>"));
+}
+
+#[test]
+fn split_drop_cap_splits_a_letter_opening_from_the_rest() {
+    assert_eq!(
+        split_drop_cap("Sương mù phủ kín thung lũng"),
+        Some(('S', "ương mù phủ kín thung lũng".to_string()))
+    );
+}
+
+#[test]
+fn split_drop_cap_rejects_openings_that_are_not_letters() {
+    assert_eq!(split_drop_cap("\"Ngươi là ai?\" hắn hỏi"), None);
+    assert_eq!(split_drop_cap("- Ngươi là ai?"), None);
+    assert_eq!(split_drop_cap("&quot;Ngươi là ai?&quot;"), None);
+    assert_eq!(split_drop_cap("1954 là năm ấy"), None);
+    assert_eq!(split_drop_cap(" Sương mù phủ kín"), None);
+    assert_eq!(split_drop_cap(""), None);
+}
+
+#[test]
+fn chapter_xhtml_marks_the_first_paragraph_with_a_drop_cap() {
+    let xhtml = chapter_xhtml("Chương 1", "<p>Sương mù phủ kín thung lũng</p>");
+    assert!(xhtml.contains(
+        "<p class=\"dropcap-para\"><span class=\"dropcap\">S</span>ương mù phủ kín thung lũng</p>"
+    ));
+}
+
+#[test]
+fn chapter_xhtml_drop_caps_only_the_first_paragraph() {
+    let xhtml = chapter_xhtml(
+        "Chương 1",
+        "<p>Sương mù phủ kín thung lũng</p>\n<p>Hắn bước ra khỏi cửa</p>\n<p>Trời đã sáng</p>",
+    );
+    assert_eq!(xhtml.matches("class=\"dropcap\"").count(), 1);
+    assert_eq!(xhtml.matches("class=\"dropcap-para\"").count(), 1);
+    assert!(xhtml.contains("<p>Hắn bước ra khỏi cửa</p>"));
+    assert!(xhtml.contains("<p>Trời đã sáng</p>"));
+}
+
+#[test]
+fn chapter_xhtml_leaves_a_dialogue_opening_alone() {
+    let body = "<p>\"Ngươi là ai?\" hắn hỏi</p>\n<p>Không ai trả lời</p>";
+    let xhtml = chapter_xhtml("Chương 1", body);
+    assert!(!xhtml.contains("dropcap"));
+    assert!(xhtml.contains(body));
+}
+
+#[tokio::test]
+async fn build_epub_drop_caps_the_chapter_but_not_the_title_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Sương mù phủ kín thung lũng</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let output = tmp.path().join("out.epub");
+    build_epub(BuildEpubParams {
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "Truyện Đẹp".to_string(),
+        novel_author: Some("Người Viết".to_string()),
+        cover_url: None,
+        chapter_dir: chapter_dir.clone(),
+        output_epub: Some(output.clone()),
+        font_path: None,
+        metadata_override: None,
+    })
+    .await
+    .unwrap();
+
+    let bytes = tokio::fs::read(&output).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+
+    let mut chapter = String::new();
+    archive
+        .by_name("EPUB/text/chapter_0001.xhtml")
+        .unwrap()
+        .read_to_string(&mut chapter)
+        .unwrap();
+    assert!(chapter.contains(
+        "<p class=\"dropcap-para\"><span class=\"dropcap\">S</span>ương mù phủ kín thung lũng</p>"
+    ));
+
+    let mut title_page = String::new();
+    archive
+        .by_name("EPUB/text/titlepage.xhtml")
+        .unwrap()
+        .read_to_string(&mut title_page)
+        .unwrap();
+    assert!(!title_page.contains("dropcap"));
+}
+
+#[tokio::test]
+async fn build_epub_stylesheet_carries_the_drop_cap_rules() {
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Sương mù phủ kín thung lũng</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let output = tmp.path().join("out.epub");
+    build_epub(BuildEpubParams {
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "Truyện Đẹp".to_string(),
+        novel_author: Some("Người Viết".to_string()),
+        cover_url: None,
+        chapter_dir: chapter_dir.clone(),
+        output_epub: Some(output.clone()),
+        font_path: None,
+        metadata_override: None,
+    })
+    .await
+    .unwrap();
+
+    let bytes = tokio::fs::read(&output).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut css = String::new();
+    archive
+        .by_name("EPUB/styles/main.css")
+        .unwrap()
+        .read_to_string(&mut css)
+        .unwrap();
+
+    assert!(css.contains("p.dropcap-para"));
+    assert!(css.contains("text-indent: 0;"));
+    assert!(css.contains(".dropcap {"));
+    assert!(css.contains("float: left;"));
+}
+
+#[test]
+fn title_page_xhtml_carries_no_drop_cap() {
+    let xhtml = title_page_xhtml("Truyện X", Some("Tác giả Y"));
+    assert!(!xhtml.contains("dropcap"));
+}
+
+#[test]
+fn chapter_xhtml_leaves_a_body_without_a_paragraph_alone() {
+    let body = "<div>Sương mù phủ kín thung lũng</div>";
+    let xhtml = chapter_xhtml("Chương 1", body);
+    assert!(!xhtml.contains("dropcap"));
+    assert!(xhtml.contains(body));
+}
+
+#[test]
+fn split_drop_cap_composes_a_decomposed_letter_into_one_character() {
+    let decomposed = "E\u{0302}\u{0301}m đềm trôi qua";
+    assert_eq!(
+        split_drop_cap(decomposed),
+        Some(('\u{1EBE}', "m đềm trôi qua".to_string()))
+    );
 }

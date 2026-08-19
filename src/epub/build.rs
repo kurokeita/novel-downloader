@@ -72,7 +72,17 @@ fn build_main_css(font_metadata: &FontMetadata, font_file_name: &str) -> String 
         "@font-face {{\n  font-family: '{family}';\n  src: url('../fonts/{font}');\n}}\n\n\
 body {{\n  font-family: '{family}', serif;\n  line-height: 1.8;\n  margin: 0%;\n  padding: 0;\n}}\n\n\
 h1 {{\n  text-align: center;\n  font-size: 2.2em;\n  font-weight: bold;\n  margin: 2.5em 0 1.5em 0;\n  padding: 0;\n}}\n\n\
-p {{\n  margin: 0 0 0.9em 0;\n  text-indent: 2em;\n  text-align: justify;\n}}",
+p {{\n  margin: 0 0 0.9em 0;\n  text-indent: 2em;\n  text-align: justify;\n}}\n\n\
+p.dropcap-para {{\n  text-indent: 0;\n}}\n\n\
+/* Tuning knob: these three decide how the drop cap sits against the body\n\
+   text, and they can only be measured on a device. The float reserves a box\n\
+   of font-size times line-height, and text wraps around whole lines of it,\n\
+   so to cover N lines exactly:\n\
+       font-size = N * 1.8 (the body line-height) / this line-height\n\
+   4.5 * 0.8 = 3.6em = 2 lines. Raise this line-height if stacked Vietnamese\n\
+   marks clip into the chapter heading above. A reader that overrides line\n\
+   spacing changes the arithmetic and may push the cap onto a third line. */\n\
+.dropcap {{\n  float: left;\n  font-size: 4.5em;\n  line-height: 0.8;\n  margin-right: 0.08em;\n}}",
         family = escaped_family,
         font = font_file_name,
     )

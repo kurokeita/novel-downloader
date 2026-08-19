@@ -7,6 +7,6 @@ pub use build::{BuildEpubParams, EpubMetadataOverride, build_epub, epub_file_ste
 pub use chapters::{SavedChapter, extract_title_and_body_from_saved_chapter, list_chapter_files};
 pub use cover::pick_cover_extension;
 pub use package::{
-    ChapterEntry, ContentOpfParams, chapter_xhtml, content_opf, nav_xhtml, ncx_xml,
+    ChapterEntry, ContentOpfParams, chapter_xhtml, content_opf, nav_xhtml, ncx_xml, split_drop_cap,
     title_page_xhtml,
 };

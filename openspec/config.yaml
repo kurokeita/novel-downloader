@@ -62,7 +62,6 @@ rules:
     - "Write requirements against observable behavior of the public API, the CLI, or the EPUB artifact, not against private module internals."
     - "Every requirement needs at least one scenario that maps onto a test in `tests/<module>.rs`."
   design:
-    - "Only write a design when the change crosses module boundaries or introduces a new trait/seam. Single-module changes skip it."
     - "Name which existing module owns each new piece of behavior rather than inventing a new module by default."
   tasks:
     - "Order tasks test-first, so the failing test is its own task, ahead of the implementation task it drives."
