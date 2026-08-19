@@ -501,26 +501,39 @@ pub(super) fn step_fast_skip(state: &mut WizardState) -> Result<StepResult> {
     })
 }
 
-/// Choose between bundled vs custom EPUB font.
-pub(super) fn step_font_choice(state: &mut WizardState) -> Result<StepResult> {
+/// Choose between the bundled font, a previously remembered font, or a custom
+/// file. The remembered list is validated once per wizard run and cached in
+/// the state, so returning here by back-navigation costs no filesystem work.
+pub(super) async fn step_font_choice(state: &mut WizardState) -> Result<StepResult> {
+    if state.recent_fonts.is_none() {
+        let fonts = match crate::recent_fonts::config_dir() {
+            Some(dir) => crate::recent_fonts::load(&dir).await,
+            None => Vec::new(),
+        };
+        state.recent_fonts = Some(fonts);
+    }
+    let remembered = state.recent_fonts.as_deref().unwrap_or_default();
+
+    let mut options = vec![SelectOption {
+        label: "Use the bundled Bokerlam.ttf".into(),
+        value: FontChoice::Default,
+        hint: None,
+    }];
+    options.extend(remembered.iter().map(|font| SelectOption {
+        label: font.family_name.clone(),
+        value: FontChoice::Remembered(font.path.clone()),
+        hint: Some(font.path.to_string_lossy().into_owned()),
+    }));
+    options.push(SelectOption {
+        label: "Pick a custom font file path".into(),
+        value: FontChoice::Custom,
+        hint: None,
+    });
+
     let outcome = run_select(
         "EPUB font",
         "Pick the font embedded in the EPUB.",
-        Select::with_initial(
-            vec![
-                SelectOption {
-                    label: "Use the bundled Bokerlam.ttf".into(),
-                    value: FontChoice::Default,
-                    hint: None,
-                },
-                SelectOption {
-                    label: "Pick a custom font file path".into(),
-                    value: FontChoice::Custom,
-                    hint: None,
-                },
-            ],
-            &state.font_choice,
-        ),
+        Select::with_initial(options, &state.font_choice),
     )?;
     let previous = if state.mode == CrawlMode::EpubOnly {
         WizardStep::Author
@@ -529,8 +542,12 @@ pub(super) fn step_font_choice(state: &mut WizardState) -> Result<StepResult> {
     };
     advance_or_back!(outcome, previous, |choice| {
         state.font_choice = choice;
-        let next = match choice {
+        let next = match &state.font_choice {
             FontChoice::Custom => WizardStep::FontPath,
+            FontChoice::Remembered(path) => {
+                state.font_path = Some(path.clone());
+                WizardStep::Confirm
+            }
             FontChoice::Default => {
                 state.font_path = None;
                 WizardStep::Confirm
@@ -540,8 +557,9 @@ pub(super) fn step_font_choice(state: &mut WizardState) -> Result<StepResult> {
     })
 }
 
-/// Custom font path picker.
-pub(super) fn step_font_path(state: &mut WizardState) -> Result<StepResult> {
+/// Custom font path picker. The submitted path is validated here so a bad
+/// font is caught at the prompt rather than after the whole crawl has run.
+pub(super) async fn step_font_path(state: &mut WizardState) -> Result<StepResult> {
     let outcome = run_path_prompt(
         "Font path",
         "Absolute path to the .ttf/.otf file. Tab to autocomplete.",
@@ -555,8 +573,22 @@ pub(super) fn step_font_path(state: &mut WizardState) -> Result<StepResult> {
         if trimmed.is_empty() {
             return Ok(StepResult::Next(WizardStep::FontChoice));
         }
-        state.font_path = Some(PathBuf::from(expand_tilde(trimmed).as_ref()));
-        Ok(StepResult::Next(WizardStep::Confirm))
+        let candidate = PathBuf::from(expand_tilde(trimmed).as_ref());
+        match crate::utils::validate_font_file(&candidate).await {
+            Ok((canonical, _)) => {
+                state.font_path = Some(canonical);
+                Ok(StepResult::Next(WizardStep::Confirm))
+            }
+            Err(error) => {
+                match show_note(
+                    "Font path",
+                    &format!("{error}\n\nPress Enter to try again."),
+                )? {
+                    PromptOutcome::Quit => Ok(StepResult::Quit),
+                    _ => Ok(StepResult::Next(WizardStep::FontPath)),
+                }
+            }
+        }
     })
 }
 
@@ -592,7 +624,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
         CrawlMode::Crawl => WizardStep::FastSkip,
         CrawlMode::CrawlEpub | CrawlMode::EpubOnly => match state.font_choice {
             FontChoice::Custom => WizardStep::FontPath,
-            FontChoice::Default => WizardStep::FontChoice,
+            FontChoice::Default | FontChoice::Remembered(_) => WizardStep::FontChoice,
         },
     };
     let outcome = run_confirm("Plan", &summary, true)?;

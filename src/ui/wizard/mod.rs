@@ -21,7 +21,10 @@ pub async fn run_interactive_flow(
         step = match advance_step(step, &mut state).await? {
             StepResult::Next(next) => next,
             StepResult::Quit => return Ok(None),
-            StepResult::Done(plan) => return Ok(Some(*plan)),
+            StepResult::Done(plan) => {
+                remember_font(plan.font_path.as_deref()).await;
+                return Ok(Some(*plan));
+            }
         };
     }
 }
@@ -45,8 +48,19 @@ async fn advance_step(step: WizardStep, state: &mut WizardState) -> Result<StepR
         IfExists => steps::step_if_exists(state),
         ChapterDir => steps::step_chapter_dir(state),
         FastSkip => steps::step_fast_skip(state),
-        FontChoice => steps::step_font_choice(state),
-        FontPath => steps::step_font_path(state),
+        FontChoice => steps::step_font_choice(state).await,
+        FontPath => steps::step_font_path(state).await,
         Confirm => steps::step_confirm(state),
+    }
+}
+
+/// Remember a confirmed custom font, best-effort. Does nothing when the plan
+/// carries no font or the environment offers no config root; a store that
+/// cannot be written is never worth failing a confirmed plan over.
+async fn remember_font(font_path: Option<&std::path::Path>) {
+    if let Some(path) = font_path
+        && let Some(dir) = crate::recent_fonts::config_dir()
+    {
+        let _ = crate::recent_fonts::record(&dir, path).await;
     }
 }

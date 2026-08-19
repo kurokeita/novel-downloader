@@ -2,6 +2,7 @@ pub mod cli;
 pub mod crawler;
 pub mod epub;
 pub mod font;
+pub mod recent_fonts;
 pub mod runner;
 pub mod source;
 pub mod ui;

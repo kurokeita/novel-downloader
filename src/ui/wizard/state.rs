@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::cli::CliOptions;
 use crate::crawler::ExistingFilePolicy;
+use crate::recent_fonts::RecentFont;
 use crate::source::ChapterRef;
 use crate::ui::plan::{CrawlMode, InteractivePlan};
 
@@ -35,10 +36,12 @@ pub(super) enum StepResult {
     Done(Box<InteractivePlan>),
 }
 
-/// Whether the user picked the bundled font or a custom file.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Whether the user picked the bundled font, one previously remembered font,
+/// or a custom file path.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum FontChoice {
     Default,
+    Remembered(PathBuf),
     Custom,
 }
 
@@ -67,6 +70,9 @@ pub(super) struct WizardState {
     pub(super) chapter_dir: Option<PathBuf>,
     pub(super) font_choice: FontChoice,
     pub(super) font_path: Option<PathBuf>,
+    /// Validated remembered fonts, computed once on first entry to the font
+    /// step so back-navigation never re-stats the filesystem.
+    pub(super) recent_fonts: Option<Vec<RecentFont>>,
     pub(super) allow_any_host: bool,
 }
 
@@ -106,6 +112,7 @@ impl WizardState {
                 FontChoice::Default
             },
             font_path: options.font_path.as_ref().map(PathBuf::from),
+            recent_fonts: None,
             allow_any_host: options.allow_any_host,
         }
     }
