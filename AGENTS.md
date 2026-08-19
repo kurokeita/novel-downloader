@@ -230,6 +230,18 @@ below list each submodule's role.
      terminal: `TextInput`, `Select`, `PathInput` (with tab completions
      via `path_completions` / `longest_common_prefix`), and
      `DownloadProgress` + `make_tui_progress_callback`.
+     `DownloadProgress` also owns the run's timing: `started_at`,
+     `finished_at`, and a `completions` window of recent arrival
+     instants. `elapsed(now)` freezes at `finished_at`, so the "Done"
+     screen (and an `Esc` abort, which also marks the run finished)
+     reports the run's own duration rather than the reader's dwell time.
+     `eta(now)` measures throughput over the window and returns
+     `Option`, and `gauge_label` composes the tally, percentage,
+     elapsed time, and estimate into the gauge's label. Every mutator
+     has an `_at(now)` twin that tests drive; `Instant::now()` appears
+     only in `from_event` and the `finish` / `record_*` wrappers, which
+     the progress callback runs with the shared mutex held, so arrival
+     order stays monotonic under parallel workers.
   2. `screens/` — synchronous ratatui screens, each opens its own
      `TerminalGuard` (raw mode + alt screen) so the TUI is always torn
      down between prompts:
@@ -339,3 +351,21 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   `--output-root`.
 - **Fast skip:** when `--fast-skip` is set and the destination chapter
   file already exists, the network fetch is skipped entirely.
+- **Download time estimates:** the TUI gauge label carries elapsed time
+  always and an estimate while the run is in flight, reaching parity with
+  the CLI bar's `elapsed_precise` / `eta_precise`. Both render as
+  unconditional `HH:MM:SS` (`format_hms`), with no `MM:SS` fallback branch
+  and no wrap past 24h. The estimate comes from a `MAX_RATE_SAMPLES`
+  (20) window of recent arrivals, never a whole-run average, because a
+  `--fast-skip` resume lands hundreds of chapters in milliseconds and an
+  average would then report `ETA 00:00:00` for the entire real download.
+  A sample count alone does not catch that, nor a parallel run's first
+  worker wave, so `MIN_RATE_SPAN` (2s) withholds the estimate below that
+  span and the label shows `ETA —` instead; the placeholder stays so the
+  label keeps a stable width between redraws. `span` is stretched to
+  `now`, so a rate-limit stall grows the estimate rather than leaving it
+  stale. Known and accepted: the estimate runs optimistic for up to 20
+  chapters after a skip burst and pessimistic for up to 20 after a
+  stall, both self-healing as the window turns over. Deliberately not
+  built: age-pruning samples older than ~60s, and time-based window
+  sizing.
