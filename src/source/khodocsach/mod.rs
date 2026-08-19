@@ -122,7 +122,8 @@ impl From<ApiFailure> for SourceError {
 /// into an [`ApiFailure`] carrying the status and, when the body is the usual
 /// WordPress error envelope, its `code` and `message`.
 async fn get_json<T: DeserializeOwned>(url: &str, ua: Option<&str>) -> Result<T, ApiFailure> {
-    let client = http_client(REQUEST_TIMEOUT, ua).map_err(|e| ApiFailure::transport(e.to_string()))?;
+    let client =
+        http_client(REQUEST_TIMEOUT, ua).map_err(|e| ApiFailure::transport(e.to_string()))?;
     let response = client
         .get(url)
         .send()
@@ -227,7 +228,10 @@ async fn fetch_chapter_index(base: &str, book_id: u64) -> SourceResult<Vec<Chapt
 /// Perform one ticket-then-content round trip. Kept separate from the retry
 /// so the retry re-runs both hops, which is the point: a fresh ticket is
 /// useless without a fresh content request to spend it on.
-async fn fetch_content_once(chapter_url: &str, ua: Option<&str>) -> Result<ChapterContentResponse, ApiFailure> {
+async fn fetch_content_once(
+    chapter_url: &str,
+    ua: Option<&str>,
+) -> Result<ChapterContentResponse, ApiFailure> {
     let ticket = get_json::<Ticket>(&format!("{chapter_url}/ticket"), ua).await?;
 
     let mut content_url = Url::parse(chapter_url).map_err(|e| {
@@ -318,7 +322,9 @@ impl SiteAdapter for Khodocsach {
 
         let response = match fetch_content_once(&chapter_url, ua).await {
             Ok(response) => response,
-            Err(failure) if failure.is_ticket_invalid() => fetch_content_once(&chapter_url, ua).await?,
+            Err(failure) if failure.is_ticket_invalid() => {
+                fetch_content_once(&chapter_url, ua).await?
+            }
             Err(failure) => return Err(failure.into()),
         };
 
