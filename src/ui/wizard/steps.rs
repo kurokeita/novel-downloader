@@ -419,7 +419,7 @@ pub(super) fn step_delay(state: &mut WizardState) -> Result<StepResult> {
     });
     let outcome = run_text_prompt(
         "Delay",
-        "Delay between requests (seconds).",
+        "Pause after each chapter is written (seconds).",
         Some(state.delay.to_string()),
         None,
         Some(validator),

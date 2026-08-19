@@ -176,6 +176,7 @@ async fn parallel_runs_all_chapters_with_multiple_workers() {
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 3,
+        delay: 0.0,
         novel_title: None,
         fast_skip: false,
         prompt,
@@ -216,6 +217,7 @@ async fn parallel_collects_failures_sorted_by_chapter() {
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 2,
+        delay: 0.0,
         novel_title: None,
         fast_skip: false,
         prompt,
@@ -318,6 +320,7 @@ async fn parallel_emits_progress_events_for_each_chapter() {
         output_root: dir.path().to_path_buf(),
         if_exists: ExistingFilePolicy::Skip,
         workers: 2,
+        delay: 0.0,
         novel_title: None,
         fast_skip: false,
         prompt,
@@ -480,6 +483,7 @@ fn fake_parallel(
         output_root,
         if_exists: ExistingFilePolicy::Overwrite,
         workers,
+        delay: 0.0,
         novel_title: None,
         fast_skip: false,
         prompt: Arc::new(|_: &std::path::Path| ExistingChapterDecision::Skip),
@@ -702,6 +706,31 @@ async fn sequential_spaces_requests_by_the_policy_min_delay() {
     assert!(
         started.elapsed() >= std::time::Duration::from_millis(120),
         "run took {:?}, too fast to have honored min_delay",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
+async fn parallel_honors_the_user_delay_between_writes() {
+    let adapter = leak(FakeSource::new(permissive_policy()));
+    let dir = tempfile::tempdir().unwrap();
+    let started = std::time::Instant::now();
+    crawl_chapters_parallel(ParallelParams {
+        delay: 0.12,
+        ..fake_parallel(
+            adapter,
+            fake_refs(&[1, 2]),
+            dir.path().to_path_buf(),
+            1,
+            None,
+        )
+    })
+    .await;
+
+    // One worker writing two chapters sleeps `delay` after each write.
+    assert!(
+        started.elapsed() >= std::time::Duration::from_millis(240),
+        "run took {:?}, too fast to have honored the user delay",
         started.elapsed()
     );
 }

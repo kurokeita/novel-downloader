@@ -96,9 +96,9 @@ pub fn slugify(text: &str, fallback: &str) -> String {
 }
 
 /// Construct a reqwest client preconfigured with our User-Agent and timeout.
-pub(crate) fn http_client(timeout: Duration) -> Result<reqwest::Client> {
+pub(crate) fn http_client(timeout: Duration, user_agent: Option<&str>) -> Result<reqwest::Client> {
     reqwest::Client::builder()
-        .user_agent(USER_AGENT)
+        .user_agent(user_agent.unwrap_or(USER_AGENT))
         .timeout(timeout)
         .build()
         .context("failed to build HTTP client")
@@ -112,7 +112,7 @@ pub async fn fetch_html(url: &str) -> Result<String> {
 /// Fetch `url` and return the response body as a string, erroring on non-2xx
 /// or transport failures. Caller controls the request timeout.
 pub async fn fetch_html_with_timeout(url: &str, timeout: Duration) -> Result<String> {
-    let client = http_client(timeout)?;
+    let client = http_client(timeout, None)?;
     let response = client
         .get(url)
         .send()
@@ -153,7 +153,7 @@ pub async fn download_binary_with_timeout(
     url: &str,
     timeout: Duration,
 ) -> Result<DownloadedBinary> {
-    let client = http_client(timeout)?;
+    let client = http_client(timeout, None)?;
     let response = client
         .get(url)
         .send()

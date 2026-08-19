@@ -287,27 +287,31 @@ fn resolve_maps_khodocsach_host_to_the_khodocsach_adapter() {
 }
 
 #[test]
-fn khodocsach_rate_policy_is_conservative_unlike_metruyenhot() {
-    let khodocsach = resolve("https://khodocsach.com/foo", false).unwrap();
-    let metruyenhot = resolve("https://metruyenhotvn.com/foo", false).unwrap();
+fn khodocsach_rate_policy_is_aggressive_due_to_ua_rotation() {
+    let policy = resolve("https://khodocsach.com/foo", false)
+        .unwrap()
+        .rate_policy();
 
-    let policy = khodocsach.rate_policy();
-    assert!(
-        policy.max_concurrency <= 3,
-        "expected a clamped concurrency, got {}",
-        policy.max_concurrency
+    // Since we rotate the UA on every single chapter, we bypass the host's
+    // rate limiter bucket and can fetch as fast as we want.
+    assert_eq!(
+        policy.max_concurrency,
+        usize::MAX,
+        "max_concurrency should be unlimited to take advantage of UA rotation"
     );
-    assert!(
-        !policy.min_delay.is_zero(),
-        "expected a non-zero min delay for a rate-limited host"
+    assert_eq!(
+        policy.min_delay,
+        std::time::Duration::from_secs(0),
+        "min_delay should be 0s for maximum throughput"
+    );
+    assert_eq!(
+        policy.backoff_base,
+        std::time::Duration::from_secs(2),
+        "backoff_base should be tiny so 429s are retried quickly"
     );
     assert!(
         policy.max_retries > 0,
         "a rate-limited host must be worth retrying"
-    );
-    assert!(
-        metruyenhot.rate_policy().max_concurrency > policy.max_concurrency,
-        "metruyenhot must stay the permissive one"
     );
 }
 

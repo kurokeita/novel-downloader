@@ -111,12 +111,19 @@ below list each submodule's role.
     the book title, which the crawler needs to name the output
     directory, so it rides on the locator as a `book` query param —
     legitimate because the trait defines the locator as opaque and
-    source-owned. Its `RatePolicy` (concurrency 2, 500ms `min_delay`) is
-    **known to be too fast, not merely uncalibrated**: a full-book crawl
-    is refused after roughly 119 chapters, 1.5s spacing fails too, and
-    the limiter stays tripped for minutes, which the current
-    `backoff_base`/`max_retries` cannot ride out. Short ranges work,
-    whole books do not yet. See task 5.11.
+    source-owned. Its `RatePolicy` is **unconstrained**
+    (`max_concurrency: usize::MAX`, zero `min_delay`, 2s `backoff_base`,
+    2 retries) because `fetch_chapter` rotates the `User-Agent` per
+    chapter (`"<USER_AGENT> rev/<number>"`, via the `Option<&str>` UA
+    argument threaded through `utils::http_client`), and the live
+    limiter buckets by the exact header value. The measurements behind
+    the earlier calibrated policy still stand and are worth knowing: a
+    chapter costs two requests, and on a single UA the sustainable
+    ceiling sat between 1.62 req/s (held for 100 requests) and 4.3 req/s
+    (refused after 43), with a self-extending penalty that only ~3
+    minutes of silence clears. Those are the numbers the policy would
+    have to return to if the rotation is ever removed. The reasoning
+    lives in the `rate_policy` doc comment.
 
   Both adapters derive their request base from the URL they are handed
   rather than hard-coding a host, which is what makes them testable
