@@ -8,10 +8,21 @@ Supported hosts:
 
 - `metruyenhotvn.com`
 - `metruyenhotne.com`
+- `khodocsach.com`
 
-URLs from any other host are rejected with a clear error before any network
-fetch. The hidden `--allow-any-host` flag bypasses the check for local mock
-fixtures and integration tests; it is not intended for normal use.
+You never pick a source. Pass a novel URL and the host decides which adapter
+handles it: the metruyenhot hosts are scraped from HTML, `khodocsach.com` is
+read through its JSON API. URLs from any other host are rejected with a clear
+error before any network fetch. The hidden `--allow-any-host` flag bypasses the
+check for local mock fixtures and integration tests; it is not intended for
+normal use.
+
+**khodocsach.com is rate limited and therefore slow.** Its API refuses roughly
+anything above 1.6 requests per second, and a chapter costs two requests, so the
+downloader deliberately paces itself to one chapter every two seconds and
+ignores `--workers` above 1 for that host. Expect about 20 minutes for a
+600-chapter novel and about an hour for 2000 chapters. Interrupting a run costs
+nothing: re-run the same command and already-saved chapters are skipped.
 
 ## Features
 
@@ -96,7 +107,7 @@ Options:
   --start <N>              Start chapter number, inclusive
   --end <N>                End chapter number, inclusive
   --output-root <DIR>      Root output directory [default: output]
-  --delay <SECONDS>        Delay between sequential requests [default: 0.5]
+  --delay <SECONDS>        Extra pause after each chapter is written [default: 0.5]
   --workers <N>            Number of concurrent download workers [default: 1]
   --epub                   Build an EPUB after crawling
   --epub-only              Build an EPUB from existing saved chapter files
@@ -111,6 +122,11 @@ Options:
 
 `--workers > 1` requires `--if-exists skip` or `--if-exists overwrite`, because
 interactive per-file prompts are only safe in the sequential path.
+
+`--delay` is your own pause after each chapter is written, and it applies to
+every worker. Each source additionally enforces a minimum spacing between
+requests that `--delay` cannot lower, and may cap `--workers`; the run tells you
+when that happens.
 
 ## How It Works
 

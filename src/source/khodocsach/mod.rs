@@ -259,20 +259,40 @@ impl SiteAdapter for Khodocsach {
         HOSTS
     }
 
-    /// **These values are known to be too fast, not merely uncalibrated.**
-    /// Live runs at this `min_delay` fail: the limiter refused a full-book
-    /// crawl after roughly 119 chapters, and 1.5s spacing failed as well.
-    /// Once tripped it stays tripped for minutes, which `backoff_base *
-    /// attempt` across `max_retries` cannot clear, so a long run sheds
-    /// chapters in clusters. Short ranges work; whole books do not yet.
-    /// Calibrating these four numbers is its own task and they stay as they
-    /// are until it lands.
+    /// Calibrated against the live host. The limiter guards the `/ticket`
+    /// hop and answers `429 {"code":"rate_limited"}` with no `Retry-After`.
+    ///
+    /// A chapter costs **two** requests (ticket, then content) and the pacer
+    /// spaces chapter attempts, so `min_delay` of 2s is 1 req/s. Measured:
+    /// 1.62 req/s held for 100 consecutive requests with no failures, while
+    /// 4.3 req/s was refused after 43 chapters and 500ms spacing (~4 req/s)
+    /// died at chapter 121, twice, reproducibly.
+    ///
+    /// `backoff_base` is minutes, not seconds, because the penalty is
+    /// self-extending: requests spaced 15s apart were still refused 171s
+    /// after tripping it, and only ~3 minutes of silence cleared it. A
+    /// seconds-scale backoff knocks during the penalty and prolongs it, which
+    /// is why long runs used to shed chapters in clusters. The first step
+    /// therefore already out-waits the full cooldown.
+    ///
+    /// `max_concurrency` is 1 rather than 2 because burst concurrency is
+    /// penalized independently of average rate, and at this `min_delay` the
+    /// pacer gates chapter starts anyway — extra workers buy no throughput
+    /// and only put two requests in flight at once.
+    ///
+    /// The bucket is keyed on the **exact `User-Agent` string**, not on IP
+    /// alone: while a run was being refused, a one-character change to the UA
+    /// returned 200 from the same machine at the same instant. Do not exploit
+    /// that.
+    ///
+    /// The cost is honest: roughly 20 minutes for 600 chapters and an hour
+    /// for 2000. Resume exists for exactly this reason.
     fn rate_policy(&self) -> RatePolicy {
         RatePolicy {
-            max_concurrency: 2,
-            min_delay: Duration::from_millis(500),
-            max_retries: 3,
-            backoff_base: Duration::from_secs(2),
+            max_concurrency: 1,
+            min_delay: Duration::from_secs(2),
+            max_retries: 2,
+            backoff_base: Duration::from_secs(180),
         }
     }
 

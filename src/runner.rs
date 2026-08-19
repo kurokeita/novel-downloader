@@ -271,6 +271,10 @@ pub struct ParallelParams {
     pub if_exists: ExistingFilePolicy,
     /// Concurrent worker count (>= 1).
     pub workers: usize,
+    /// Seconds each worker sleeps after a successful chapter write. Distinct
+    /// from [`RatePolicy::min_delay`], which spaces request *starts* run-wide
+    /// through the [`Pacer`]; this one is the user's `--delay`.
+    pub delay: f64,
     /// Pre-discovered novel title, enabling fast-skip.
     pub novel_title: Option<String>,
     /// When true, short-circuit on existing files.
@@ -291,6 +295,7 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
         output_root,
         if_exists,
         workers,
+        delay,
         novel_title,
         fast_skip,
         prompt,
@@ -353,7 +358,7 @@ pub async fn crawl_chapters_parallel(params: ParallelParams) -> RunnerOutcome {
                         output_root: output_root.as_path(),
                         if_exists,
                         existing_policy: ExistingFilePolicy::Ask,
-                        delay: 0.0,
+                        delay,
                         novel_title: novel_title.as_deref(),
                         fast_skip,
                         prompt: Arc::clone(&prompt),

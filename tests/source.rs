@@ -311,6 +311,45 @@ fn khodocsach_rate_policy_is_conservative_unlike_metruyenhot() {
     );
 }
 
+#[test]
+fn khodocsach_rate_policy_stays_under_the_measured_ceiling() {
+    let policy = resolve("https://khodocsach.com/foo", false)
+        .unwrap()
+        .rate_policy();
+
+    // A chapter costs two requests (ticket, then content) and the pacer
+    // spaces chapter *attempts*, so min_delay of 2s is 1 req/s. A browser
+    // sustained 1.62 req/s over 100 requests but was refused at 4.3 req/s,
+    // so 1 req/s sits comfortably under the measured ceiling.
+    assert!(
+        policy.min_delay >= std::time::Duration::from_secs(2),
+        "min_delay {:?} exceeds 1 req/s once doubled for the ticket hop",
+        policy.min_delay
+    );
+
+    // The limiter is self-extending: requests spaced 15s apart were still
+    // refused 171s after tripping it, and only ~3 minutes of silence cleared
+    // it. The first backoff step must therefore already out-wait that,
+    // otherwise retries knock during the penalty and prolong it.
+    assert!(
+        policy.backoff_base >= std::time::Duration::from_secs(180),
+        "backoff_base {:?} cannot out-wait the ~3 minute penalty",
+        policy.backoff_base
+    );
+    assert!(
+        policy.max_retries > 0,
+        "a rate-limited host must be worth retrying"
+    );
+
+    // Burst concurrency is penalized independently of average rate, and at
+    // this min_delay the pacer gates chapter starts anyway, so extra workers
+    // buy no throughput and only risk overlapping requests.
+    assert_eq!(
+        policy.max_concurrency, 1,
+        "extra workers add burst risk without throughput at this min_delay"
+    );
+}
+
 #[tokio::test]
 async fn khodocsach_fetch_novel_pages_the_listing_and_returns_reading_order() {
     let mut server = mockito::Server::new_async().await;

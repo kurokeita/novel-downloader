@@ -52,7 +52,9 @@ pub struct RawArgs {
     #[arg(long, default_value = "output")]
     pub output_root: String,
 
-    /// Delay (seconds) between sequential requests.
+    /// Delay (seconds) to wait after each chapter is written. Applies to
+    /// every worker. The source may enforce its own minimum request
+    /// spacing on top of this, which cannot be lowered.
     #[arg(long, default_value_t = 0.5)]
     pub delay: f64,
 

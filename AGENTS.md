@@ -111,12 +111,17 @@ below list each submodule's role.
     the book title, which the crawler needs to name the output
     directory, so it rides on the locator as a `book` query param —
     legitimate because the trait defines the locator as opaque and
-    source-owned. Its `RatePolicy` (concurrency 2, 500ms `min_delay`) is
-    **known to be too fast, not merely uncalibrated**: a full-book crawl
-    is refused after roughly 119 chapters, 1.5s spacing fails too, and
-    the limiter stays tripped for minutes, which the current
-    `backoff_base`/`max_retries` cannot ride out. Short ranges work,
-    whole books do not yet. See task 5.11.
+    source-owned. Its `RatePolicy` is **calibrated against
+    the live host**: concurrency 1, 2s `min_delay`, 180s `backoff_base`,
+    2 retries. Because a chapter costs two requests, 2s spacing is
+    1 req/s, against a measured ceiling between 1.62 req/s (held for 100
+    requests) and 4.3 req/s (refused after 43). The backoff is minutes
+    rather than seconds because the limiter is self-extending — knocking
+    during the penalty prolongs it, and only ~3 minutes of silence
+    clears it. Full books therefore work, but slowly: ~20 minutes for
+    600 chapters, ~an hour for 2000. The reasoning lives in the
+    `rate_policy` doc comment; do not change the numbers without a live
+    measurement.
 
   Both adapters derive their request base from the URL they are handed
   rather than hard-coding a host, which is what makes them testable
