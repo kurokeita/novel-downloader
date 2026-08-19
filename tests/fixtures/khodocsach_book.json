@@ -1,0 +1,45 @@
+{
+  "id": 83420,
+  "slug": "mot-truyen-thu-nghiem",
+  "title": "Một Truyện Thử Nghiệm",
+  "desc": "<p>Dòng đầu của phần mô tả.</p>\n<p>Dòng thứ hai &amp; ký tự đặc biệt.</p>",
+  "cover": "https://khodocsach.com/wp-content/uploads/2026/07/mot-truyen-thu-nghiem-cover.jpg",
+  "author": {
+    "term_id": 169,
+    "name": "Tác Giả Thử Nghiệm",
+    "slug": "tac-gia-thu-nghiem",
+    "term_group": 0,
+    "taxonomy": "the_author"
+  },
+  "genres": [
+    { "term_id": 28, "name": "Cổ Đại", "url": "https://khodocsach.com/the_genre/co-dai/" }
+  ],
+  "status": {
+    "term_id": 79,
+    "name": "Đang cập nhật",
+    "slug": "dang-cap-nhat",
+    "term_group": 0,
+    "taxonomy": "the_status"
+  },
+  "type": {
+    "term_id": 11,
+    "name": "Truyện chữ",
+    "slug": "truyen-chu",
+    "term_group": 0,
+    "taxonomy": "the_type"
+  },
+  "vip": false,
+  "purchasable": false,
+  "price": null,
+  "require_purchase": false,
+  "user_owned": false,
+  "total_chapter": "3",
+  "latest_chapters": [
+    { "ID": 127363, "index": 3, "title": "Chương 3: Ba", "url": "https://khodocsach.com/mot-truyen-thu-nghiem/chuong-3-p127363" }
+  ],
+  "views": 312,
+  "liked": 2,
+  "youtube_playlist": "",
+  "has_audio": false,
+  "audio_available": false
+}

@@ -25,7 +25,7 @@ The crate exposes a library (`novel_downloader`) and one binary
 # build
 cargo build --release           # → target/release/novel-downloader
 
-# tests (123 currently)
+# tests (214 currently)
 cargo test                      # everything
 cargo test --test runner        # one integration file
 cargo test resolve             # one test by name pattern
@@ -86,13 +86,41 @@ below list each submodule's role.
     host (lower-cased, `www.`-stripped) to its adapter, and
     `validate_url` wraps it for the wizard. Replaces the old
     `sites.rs` allowlist.
-  - `metruyenhot/` — the only adapter today. `parser.rs` holds the
+  - `metruyenhot/` — the HTML-scraping adapter. `parser.rs` holds the
     `scraper` selectors, noise filtering, consecutive-line dedup and the
     JS-hidden `contentS` splice; `discovery.rs` walks the chapter-list
     pagination for the highest chapter number; `metadata.rs` holds the
     five main-page extractors. `fetch_novel` fetches the main page once,
     discovers `N`, and synthesizes refs `1..=N` whose locators are
     `<novel>/chuong-<n>/`.
+  - `khodocsach/` — the JSON-API adapter, no HTML parser involved.
+    `api.rs` holds the `serde` response types for the four
+    `/wp-json/app/v1/` endpoints it uses; `parser.rs` holds the pure
+    helpers (API base from the caller's origin, book-slug extraction
+    including the `.kds` permalink strip,
+    description tag-strip, paragraph split). Chapter ids are opaque
+    database ids, so `fetch_novel` **pages the real chapter listing**
+    (newest-first, re-sorted ascending, stopping on the server's own
+    `total_pages` since `per_page` is silently capped at 200) instead of
+    synthesizing a range; a page it cannot retrieve aborts the whole
+    index rather than truncating the novel. `fetch_chapter` does a
+    ticket → content handshake, requesting the ticket immediately before
+    the content request because it expires in ~62s and the runner's
+    `Pacer` can hold a queued chapter longer than that; an invalid
+    ticket re-tickets and retries **once**. The content endpoint omits
+    the book title, which the crawler needs to name the output
+    directory, so it rides on the locator as a `book` query param —
+    legitimate because the trait defines the locator as opaque and
+    source-owned. Its `RatePolicy` (concurrency 2, 500ms `min_delay`) is
+    **known to be too fast, not merely uncalibrated**: a full-book crawl
+    is refused after roughly 119 chapters, 1.5s spacing fails too, and
+    the limiter stays tripped for minutes, which the current
+    `backoff_base`/`max_retries` cannot ride out. Short ranges work,
+    whole books do not yet. See task 5.11.
+
+  Both adapters derive their request base from the URL they are handed
+  rather than hard-coding a host, which is what makes them testable
+  against `mockito` with no injected base URL.
 
 - **`crawler/`** — split across three files, re-exported from
   `crawler/mod.rs`:
@@ -217,8 +245,12 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
 
 - Integration tests live under `tests/<module>.rs` and exercise only
   the public API. Current files: `cli.rs`, `crawler.rs`,
-  `crawl_chapter.rs`, `epub.rs`, `font.rs`, `runner.rs`, `ui.rs`,
-  `utils.rs`. Shared HTML fixtures live under `tests/fixtures/`.
+  `crawl_chapter.rs`, `epub.rs`, `font.rs`, `runner.rs`, `source.rs`,
+  `ui.rs`, `utils.rs`. Shared fixtures live under `tests/fixtures/`:
+  HTML pages for metruyenhot, recorded JSON responses for khodocsach.
+  The khodocsach fixtures mirror the live wire format field-for-field but
+  carry invented placeholder text in the two prose fields (`desc`,
+  `content`), so no third-party novel text is checked in.
 - HTTP is mocked with `mockito::Server::new_async`.
 - Filesystem with `tempfile::tempdir()`.
 - Test names spell out the behavior:
@@ -230,7 +262,7 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
 
 ## Definition of done
 
-- `cargo test` green (123+ tests).
+- `cargo test` green (214+ tests).
 - `cargo clippy --all-targets` 0 warnings.
 - `cargo build --release` succeeds.
 - Every new fn has a `///` doc comment.
@@ -243,8 +275,16 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   EPUB. `utils::find_font_file` looks (in order): explicit `--font-path`,
   exe dir, exe parent, cwd. Missing font is non-fatal — EPUB falls back
   to a generic serif family.
-- **Chapter URL convention:** `<base>/chuong-<N>/`. Output files are
-  named `chapter_NNNN.html` (zero-padded).
+- **Chapter URL convention:** metruyenhot serves chapters at
+  `<base>/chuong-<N>/`; khodocsach addresses them by opaque database id
+  through its API. Output files are named `chapter_NNNN.html`
+  (zero-padded) for both.
+- **khodocsach book URLs carry a `.kds` extension** (`/ten-truyen.kds/`)
+  that the API slug does not; the bare form only 301-redirects to it.
+  `book_slug_from_url` splits at the first dot for this reason.
+  `ChapterRef.number` is the site's own `index` field, which can contain
+  gaps: `nguoi-tim-xac` has 1950 chapters spread over indexes 1..1981, so
+  output filenames may skip numbers.
 - **Default output:** `./output/<novel_slug>/`. Override with
   `--output-root`.
 - **Fast skip:** when `--fast-skip` is set and the destination chapter

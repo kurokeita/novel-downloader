@@ -61,19 +61,20 @@ Already landed by PR 3, so PR 4 does not repeat it: `ChapterRef` exists in `src/
 
 ## 5. khodocsach adapter
 
-- [ ] 5.1 Add `serde` + `serde_json`; create `src/source/khodocsach/` registering host `khodocsach.com` with a conservative `RatePolicy` (start concurrency 2–3, ~500 ms min delay)
-- [ ] 5.2 Define response types for the book endpoint, the chapter-listing endpoint, and the ticket + content endpoints
-- [ ] 5.3 Derive the book slug from the URL path; reject khodocsach URLs that are not book pages
-- [ ] 5.4 Send a non-empty browser-style User-Agent on every request; map a 403 to `SourceError::ClientRejected`
-- [ ] 5.5 Implement `fetch_novel`: resolve the book by slug, map metadata (title, author, description, cover, status), and page the chapter listing to completion treating the server's returned page size as authoritative
-- [ ] 5.6 Fail indexing outright when a listing page cannot be retrieved, rather than returning a partial index
-- [ ] 5.7 Implement `fetch_chapter`: request the ticket inside the per-chapter task immediately before the content request, never batched ahead; re-obtain the ticket and retry once when the content request reports it invalid
-- [ ] 5.8 Map a 429 on either hop to `SourceError::RateLimited`; map an entitlement refusal to `SourceError::Unentitled`
-- [ ] 5.9 Split plain-text content into ordered paragraphs preserving reading order; treat zero paragraphs as a failure
-- [ ] 5.10 Record JSON fixtures and unit-test resolution, pagination, the ticket handshake, error mapping and paragraph splitting offline
-- [ ] 5.11 Calibrate the rate constants against the live site and record the chosen values in one place
+- [x] 5.1 Add `serde` + `serde_json`; create `src/source/khodocsach/` registering host `khodocsach.com` with a conservative `RatePolicy` (start concurrency 2–3, ~500 ms min delay)
+- [x] 5.2 Define response types for the book endpoint, the chapter-listing endpoint, and the ticket + content endpoints
+- [x] 5.3 Derive the book slug from the URL path; reject khodocsach URLs that are not book pages
+- [x] 5.4 Send a non-empty browser-style User-Agent on every request; map a 403 to `SourceError::ClientRejected`
+- [x] 5.5 Implement `fetch_novel`: resolve the book by slug, map metadata (title, author, description, cover, status), and page the chapter listing to completion treating the server's returned page size as authoritative
+- [x] 5.6 Fail indexing outright when a listing page cannot be retrieved, rather than returning a partial index
+- [x] 5.7 Implement `fetch_chapter`: request the ticket inside the per-chapter task immediately before the content request, never batched ahead; re-obtain the ticket and retry once when the content request reports it invalid
+- [x] 5.8 Map a 429 on either hop to `SourceError::RateLimited`; map an entitlement refusal to `SourceError::Unentitled`
+- [x] 5.9 Split plain-text content into ordered paragraphs preserving reading order; treat zero paragraphs as a failure
+- [x] 5.10 Record JSON fixtures and unit-test resolution, pagination, the ticket handshake, error mapping and paragraph splitting offline
+- [ ] 5.11 Calibrate the rate constants against the live site and record the chosen values in one place. Known so far: `min_delay` 500ms fails a full-book crawl after ~119 chapters, 1.5s also fails, and the limiter stays tripped for minutes once hit, so `backoff_base` and `max_retries` need to grow with it. A browser sustained 1.62 req/s over 100 requests but was refused at 4.3 req/s, so the ceiling sits between the two
+- [ ] 5.14 Decide what the user-facing `--delay` means now that `RatePolicy::min_delay` exists. They are separate sleeps today: `min_delay` spaces chapter starts run-wide through the `Pacer`, while `--delay` sleeps per worker after a successful write. **The parallel runner passes `delay: 0.0` (`src/runner.rs:356`), so the value the CLI and the TUI ask for is silently discarded whenever `--workers > 1`.** Either unify the two into one source-recommended, user-overridable number applied by both runners, or keep them distinct and make the TUI say which one it is asking for. Unifying changes metruyenhot throughput, since a per-worker post-write sleep and run-wide spacing diverge as worker count grows
 - [ ] 5.12 Update README: both supported sites, host-inferred source selection, and a note that khodocsach downloads are rate-limited and slow
-- [ ] 5.13 Keep `scraper` and `ego-tree` confined to the metruyenhot module, but add **no** Cargo feature gate. Every shipped build (Homebrew, winget, `cargo install`) takes the default feature set, so a khodocsach-only build serves nobody, while the gate costs a doubled CI matrix and `#[cfg]` branching in the registry and its tests. Revisit only if someone asks for a slim build or the crate gains library consumers
+- [x] 5.13 Keep `scraper` and `ego-tree` confined to the metruyenhot module, but add **no** Cargo feature gate. Every shipped build (Homebrew, winget, `cargo install`) takes the default feature set, so a khodocsach-only build serves nobody, while the gate costs a doubled CI matrix and `#[cfg]` branching in the registry and its tests. Revisit only if someone asks for a slim build or the crate gains library consumers
 
 ## 6. End-to-end verification
 

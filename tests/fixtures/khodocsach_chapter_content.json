@@ -1,0 +1,17 @@
+{
+  "ID": 127361,
+  "index": 1,
+  "title": "Chương 1: Một",
+  "url": "https://khodocsach.com/mot-truyen-thu-nghiem/chuong-1-p127361",
+  "date": "16/08/2026",
+  "audio_url": "",
+  "content": "Đoạn thứ nhất của chương thử nghiệm.\n\n   \nĐoạn thứ hai, sau một dòng trống.\nNhấn Mở Bình Luận để xem thêm.\nĐoạn thứ ba và cuối cùng.",
+  "can_read": true,
+  "book_id": 83420,
+  "prev_chapter": null,
+  "next_chapter": {
+    "id": 127362,
+    "title": "Chương 2: Hai",
+    "url": "https://khodocsach.com/mot-truyen-thu-nghiem/chuong-2-p127362"
+  }
+}

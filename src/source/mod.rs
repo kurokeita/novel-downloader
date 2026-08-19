@@ -10,6 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub mod khodocsach;
 pub mod metruyenhot;
 pub mod registry;
 

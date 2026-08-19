@@ -96,7 +96,7 @@ pub fn slugify(text: &str, fallback: &str) -> String {
 }
 
 /// Construct a reqwest client preconfigured with our User-Agent and timeout.
-fn http_client(timeout: Duration) -> Result<reqwest::Client> {
+pub(crate) fn http_client(timeout: Duration) -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(timeout)

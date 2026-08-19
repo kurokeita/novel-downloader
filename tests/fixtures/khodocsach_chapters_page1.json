@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "ID": 127363,
+      "chapter_id": 0,
+      "index": 3,
+      "title": "Chương 3: Ba",
+      "url": "https://khodocsach.com/mot-truyen-thu-nghiem/chuong-3-p127363",
+      "date": "18/08/2026",
+      "audio_url": ""
+    },
+    {
+      "ID": 127362,
+      "chapter_id": 0,
+      "index": 2,
+      "title": "Chương 2: Hai",
+      "url": "https://khodocsach.com/mot-truyen-thu-nghiem/chuong-2-p127362",
+      "date": "17/08/2026",
+      "audio_url": ""
+    }
+  ],
+  "pagination": { "page": 1, "per_page": 2, "total": 3, "total_pages": 2 }
+}
