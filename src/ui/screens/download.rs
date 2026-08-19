@@ -7,9 +7,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Gauge, List, ListItem, Paragraph};
 use std::io::Stdout;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::ui::widgets::{DownloadLogEntry, DownloadProgress};
+use crate::ui::widgets::{DownloadLogEntry, DownloadProgress, gauge_label};
 use crate::ui::{
     TerminalGuard, footer_hint, header_paragraph, next_key_event, palette, styled_block,
 };
@@ -19,6 +19,7 @@ use crate::ui::{
 fn draw_download(
     terminal: &mut Terminal<ratatui::backend::CrosstermBackend<Stdout>>,
     progress: &DownloadProgress,
+    now: Instant,
 ) -> Result<()> {
     terminal.draw(|frame| {
         let area = frame.area().inner(Margin::new(2, 1));
@@ -77,12 +78,7 @@ fn draw_download(
         frame.render_widget(status, chunks[2]);
 
         let percent = progress.percent();
-        let label = format!(
-            "{} / {}  ({}%)",
-            progress.advanced(),
-            progress.total,
-            percent
-        );
+        let label = gauge_label(progress, now);
         let gauge = Gauge::default()
             .block(styled_block("Progress"))
             .gauge_style(
@@ -172,7 +168,7 @@ pub async fn run_download_screen(
                 .lock()
                 .map_err(|_| anyhow::anyhow!("download progress mutex poisoned"))?
                 .clone();
-            draw_download(&mut guard.terminal, &snapshot)?;
+            draw_download(&mut guard.terminal, &snapshot, Instant::now())?;
         }
         if event::poll(Duration::from_millis(80))?
             && let Event::Key(key) = event::read()?
@@ -205,7 +201,7 @@ pub async fn run_download_screen(
             .lock()
             .map_err(|_| anyhow::anyhow!("download progress mutex poisoned"))?;
         snapshot.finish();
-        draw_download(&mut guard.terminal, &snapshot)?;
+        draw_download(&mut guard.terminal, &snapshot, Instant::now())?;
     }
 
     if wait_for_user {

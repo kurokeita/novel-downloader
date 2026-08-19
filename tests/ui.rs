@@ -4,8 +4,9 @@ use novel_downloader::crawler::ExistingFilePolicy;
 use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
     SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, expand_tilde,
-    longest_common_prefix, path_completions, prompt_block_height,
+    format_hms, gauge_label, longest_common_prefix, path_completions, prompt_block_height,
 };
+use std::time::Duration;
 
 /// Build a `KeyEvent` with no modifiers — a tiny ergonomic helper for the
 /// tests below.
@@ -246,6 +247,252 @@ fn download_progress_default_log_capacity_is_generous() {
         progress.log_capacity >= 200,
         "default capacity too small: {}",
         progress.log_capacity
+    );
+}
+
+#[test]
+fn format_hms_always_renders_an_hour_field() {
+    assert_eq!(format_hms(Duration::from_secs(0)), "00:00:00");
+    assert_eq!(format_hms(Duration::from_secs(4 * 60 + 12)), "00:04:12");
+    assert_eq!(
+        format_hms(Duration::from_secs(3600 + 9 * 60 + 6)),
+        "01:09:06"
+    );
+}
+
+#[test]
+fn format_hms_does_not_wrap_past_a_day() {
+    // A very long run keeps counting hours rather than rolling over.
+    assert_eq!(format_hms(Duration::from_secs(30 * 3600 + 61)), "30:01:01");
+}
+
+#[test]
+fn gauge_label_shows_tally_elapsed_and_estimate_in_flight() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    for n in 1..=10u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Written,
+            t0 + Duration::from_secs(n as u64 * 2),
+        );
+    }
+    let label = gauge_label(&progress, t0 + Duration::from_secs(20));
+    assert!(label.contains("10 / 100"), "tally missing: {label}");
+    assert!(label.contains("10%"), "percentage missing: {label}");
+    assert!(label.contains("00:00:20"), "elapsed missing: {label}");
+    assert!(label.contains("00:03:00"), "estimate missing: {label}");
+}
+
+#[test]
+fn gauge_label_shows_a_placeholder_when_the_estimate_is_withheld() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_millis(10));
+    let label = gauge_label(&progress, t0 + Duration::from_millis(20));
+    assert!(label.contains("1 / 100"), "tally missing: {label}");
+    assert!(label.contains("00:00:00"), "elapsed missing: {label}");
+    // The segment stays present so the label does not change width mid-run.
+    assert!(label.contains("ETA"), "ETA segment missing: {label}");
+    assert!(label.contains('—'), "placeholder missing: {label}");
+}
+
+#[test]
+fn gauge_label_drops_the_estimate_once_the_run_has_ended() {
+    let mut progress = DownloadProgress::new(2);
+    let t0 = progress.started_at;
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_secs(2));
+    progress.record_completed_at(2, CrawlStatus::Written, t0 + Duration::from_secs(6));
+    progress.finish_at(t0 + Duration::from_secs(7));
+    let label = gauge_label(&progress, t0 + Duration::from_secs(300));
+    assert!(label.contains("2 / 2"), "tally missing: {label}");
+    assert!(
+        label.contains("00:00:07"),
+        "frozen elapsed missing: {label}"
+    );
+    assert!(!label.contains("ETA"), "estimate should be gone: {label}");
+    assert!(!label.contains('—'), "placeholder should be gone: {label}");
+}
+
+#[test]
+fn download_progress_estimates_from_steady_throughput() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    // Ten chapters, one every two seconds: nine intervals over 18s is 0.5/s.
+    for n in 1..=10u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Written,
+            t0 + Duration::from_secs(n as u64 * 2),
+        );
+    }
+    let eta = progress.eta(t0 + Duration::from_secs(20)).unwrap();
+    assert_eq!(eta, Duration::from_secs(180));
+}
+
+#[test]
+fn download_progress_eta_converges_on_the_slow_rate_after_a_burst() {
+    let mut progress = DownloadProgress::new(1000);
+    let t0 = progress.started_at;
+    for n in 1..=900u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Skipped,
+            t0 + Duration::from_micros(n as u64 * 30),
+        );
+    }
+    // Real downloads follow at roughly one chapter per second. Once 20 of them
+    // have evicted every burst sample, the estimate reflects only the slow rate.
+    for n in 901..=920u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Written,
+            t0 + Duration::from_secs(n as u64 - 900),
+        );
+    }
+    let now = t0 + Duration::from_secs(20);
+    let eta = progress.eta(now).unwrap();
+    assert_eq!(progress.advanced(), 920);
+    // 80 chapters left at ~1/s, so the estimate must be in that neighborhood,
+    // not the near-zero figure the burst alone would imply.
+    assert!(
+        eta >= Duration::from_secs(70) && eta <= Duration::from_secs(90),
+        "expected ~80s, got {eta:?}"
+    );
+}
+
+#[test]
+fn download_progress_eta_grows_while_the_run_is_stalled() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    for n in 1..=10u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Written,
+            t0 + Duration::from_secs(n as u64 * 2),
+        );
+    }
+    let before = progress.eta(t0 + Duration::from_secs(20)).unwrap();
+    // A rate-limited source can hold the run silent for minutes. The estimate
+    // must account for that wait rather than reporting its pre-stall figure.
+    let after = progress.eta(t0 + Duration::from_secs(200)).unwrap();
+    assert!(
+        after > before,
+        "expected growth, got {before:?} -> {after:?}"
+    );
+}
+
+#[test]
+fn download_progress_withholds_eta_below_two_samples() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    assert_eq!(progress.eta(t0 + Duration::from_secs(5)), None);
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_secs(1));
+    assert_eq!(progress.eta(t0 + Duration::from_secs(5)), None);
+}
+
+#[test]
+fn download_progress_withholds_eta_when_no_chapters_are_expected() {
+    let mut progress = DownloadProgress::new(0);
+    let t0 = progress.started_at;
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_secs(1));
+    progress.record_completed_at(2, CrawlStatus::Written, t0 + Duration::from_secs(4));
+    assert_eq!(progress.eta(t0 + Duration::from_secs(5)), None);
+}
+
+#[test]
+fn download_progress_withholds_eta_once_the_run_has_ended() {
+    let mut progress = DownloadProgress::new(100);
+    let t0 = progress.started_at;
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_secs(1));
+    progress.record_completed_at(2, CrawlStatus::Written, t0 + Duration::from_secs(4));
+    assert!(progress.eta(t0 + Duration::from_secs(4)).is_some());
+    progress.finish_at(t0 + Duration::from_secs(5));
+    assert_eq!(progress.eta(t0 + Duration::from_secs(5)), None);
+}
+
+#[test]
+fn download_progress_withholds_eta_for_an_instantaneous_burst() {
+    // 900 already-on-disk chapters land in milliseconds when resuming with
+    // --fast-skip. A whole-run average would report "ETA 0s" here, which reads
+    // as "about to finish" exactly when the real download has not started.
+    let mut progress = DownloadProgress::new(1000);
+    let t0 = progress.started_at;
+    for n in 1..=900u32 {
+        progress.record_completed_at(
+            n,
+            CrawlStatus::Skipped,
+            t0 + Duration::from_micros(n as u64 * 30),
+        );
+    }
+    assert_eq!(progress.rate_samples(), 20);
+    assert_eq!(progress.eta(t0 + Duration::from_millis(50)), None);
+}
+
+#[test]
+fn download_progress_window_records_terminal_events_only() {
+    let mut progress = DownloadProgress::new(10);
+    let t0 = progress.started_at;
+    progress.record_started(1);
+    assert_eq!(progress.rate_samples(), 0);
+    progress.record_completed_at(1, CrawlStatus::Written, t0 + Duration::from_secs(1));
+    progress.record_failed_at(2, "HTTP 503".to_string(), t0 + Duration::from_secs(2));
+    assert_eq!(progress.rate_samples(), 2);
+    // A run-scoped note advances no chapter, so it contributes no sample.
+    progress.record_note("rate policy capped workers".to_string());
+    assert_eq!(progress.rate_samples(), 2);
+}
+
+#[test]
+fn download_progress_window_caps_while_advanced_keeps_counting() {
+    let mut progress = DownloadProgress::new(200);
+    let t0 = progress.started_at;
+    for n in 1..=60u32 {
+        progress.record_completed_at(n, CrawlStatus::Written, t0 + Duration::from_secs(n as u64));
+    }
+    assert_eq!(progress.advanced(), 60);
+    assert_eq!(progress.rate_samples(), 20);
+}
+
+#[test]
+fn download_progress_reports_elapsed_before_any_chapter_event() {
+    let progress = DownloadProgress::new(5);
+    let now = progress.started_at + Duration::from_secs(3);
+    assert_eq!(progress.elapsed(now), Duration::from_secs(3));
+}
+
+#[test]
+fn download_progress_elapsed_advances_with_the_clock() {
+    let progress = DownloadProgress::new(5);
+    let first = progress.elapsed(progress.started_at + Duration::from_secs(2));
+    let second = progress.elapsed(progress.started_at + Duration::from_secs(7));
+    assert!(second > first);
+    assert_eq!(second - first, Duration::from_secs(5));
+}
+
+#[test]
+fn download_progress_elapsed_freezes_at_the_end_of_the_run() {
+    let mut progress = DownloadProgress::new(1);
+    progress.record_completed(1, CrawlStatus::Written);
+    let ended = progress.started_at + Duration::from_secs(12);
+    progress.finish_at(ended);
+    assert!(progress.done);
+    // Reading long after the run ended still reports the run's own duration.
+    let much_later = progress.started_at + Duration::from_secs(600);
+    assert_eq!(progress.elapsed(much_later), Duration::from_secs(12));
+}
+
+#[test]
+fn download_progress_aborted_run_freezes_elapsed_too() {
+    let mut progress = DownloadProgress::new(10);
+    progress.record_completed(1, CrawlStatus::Written);
+    // Esc aborts the run: the screen marks it finished with chapters outstanding.
+    let aborted_at = progress.started_at + Duration::from_secs(4);
+    progress.finish_at(aborted_at);
+    assert!(progress.advanced() < progress.total);
+    assert_eq!(
+        progress.elapsed(progress.started_at + Duration::from_secs(90)),
+        Duration::from_secs(4)
     );
 }
 

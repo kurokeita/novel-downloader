@@ -11,9 +11,9 @@ A naive `elapsed / advanced` estimate is not good enough here. Two of the most
 common run shapes advance the counter in an instant burst that carries no
 information about the remaining work:
 
-- **Resume with `--fast-skip`** — chapters already on disk complete with no
+- **Resume with `--fast-skip`**, chapters already on disk complete with no
   network request at all, so 900 of 1000 chapters can land in milliseconds.
-- **Parallel fresh run** — the first `--workers` completions all land together
+- **Parallel fresh run**, the first `--workers` completions all land together
   after one chapter latency.
 
 Both make a naive estimate print `ETA 00:00:00` precisely when the real work is
@@ -32,7 +32,7 @@ about to begin, which is worse than printing nothing.
   or a worker ramp is flushed out of the estimate instead of poisoning it for
   the rest of the run.
 - The estimate is **withheld rather than guessed** when the available samples
-  cannot support it — too few samples, or samples spanning too short a wall-clock
+  cannot support it, too few samples, or samples spanning too short a wall-clock
   interval. The screen shows a placeholder in that case.
 - The TUI download gauge label grows two segments: elapsed time always, and the
   estimate while the run is in flight. No new rows, so the screen layout is
@@ -51,7 +51,7 @@ changes.
 ### New Capabilities
 
 - `download-progress`: How the interactive download screen reports run
-  progress — the chapter tally, elapsed time, and the remaining-time estimate,
+  progress, the chapter tally, elapsed time, and the remaining-time estimate,
   including when that estimate is withheld because the samples cannot support
   it.
 
@@ -61,13 +61,13 @@ None. `recent-fonts` is untouched.
 
 ## Impact
 
-- `src/ui/widgets/progress.rs` — `DownloadProgress` gains time state, two
+- `src/ui/widgets/progress.rs`, `DownloadProgress` gains time state, two
   readers, and a duration formatter. Timestamps are taken inside the existing
   event-application path, which the progress callback already runs with the
   shared mutex held, so arrival order stays monotonic under parallel workers
   with no sorting.
-- `src/ui/screens/download.rs` — gauge label composition only.
-- `tests/ui.rs` — new `download_progress_*` cases, including the skip-burst
+- `src/ui/screens/download.rs`, gauge label composition only.
+- `tests/ui.rs`, new `download_progress_*` cases, including the skip-burst
   recovery case that motivates the sliding window.
 - No new dependencies; `std::time::Instant` and `VecDeque` cover it.
 - `src/bin/novel-downloader.rs` and the `indicatif` path are untouched, so the

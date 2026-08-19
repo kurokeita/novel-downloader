@@ -1,4 +1,6 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::crawler::CrawlStatus;
 use crate::runner::ProgressEvent;
@@ -21,6 +23,33 @@ pub enum DownloadLogEntry {
 /// Default number of recent log entries kept for display.
 const DEFAULT_LOG_WINDOW: usize = 500;
 
+/// How many recent chapter arrivals the remaining-time estimate is measured
+/// over. Deliberately short: a whole-run average is poisoned for the rest of the
+/// run by a burst of already-on-disk chapters, whereas a window that old
+/// arrivals fall out of recovers on its own.
+const MAX_RATE_SAMPLES: usize = 20;
+
+/// Shortest sample span the estimate will be computed from. A sample count alone
+/// does not protect against bursts: 900 skipped chapters, or a parallel run's
+/// first wave of workers, can fill the whole window within milliseconds and
+/// imply a rate of hundreds per second. Reporting nothing beats reporting a
+/// confident `00:00:00` just as the real work begins.
+const MIN_RATE_SPAN: Duration = Duration::from_secs(2);
+
+/// Render `duration` as `HH:MM:SS`, matching the non-interactive progress bar's
+/// `elapsed_precise`. The hour field is unconditional, since runs regularly
+/// cross an hour and a shorter form would only need a fallback branch. Hours are
+/// never wrapped, so a very long run keeps counting past 24.
+pub fn format_hms(duration: Duration) -> String {
+    let total = duration.as_secs();
+    format!(
+        "{:02}:{:02}:{:02}",
+        total / 3600,
+        (total % 3600) / 60,
+        total % 60
+    )
+}
+
 /// Mutable state backing the in-TUI download progress screen.
 ///
 /// The progress callback installed on the runner pushes events into one of
@@ -41,6 +70,19 @@ pub struct DownloadProgress {
     pub log_capacity: usize,
     /// Set when the runner has finished — flips the screen into "done" mode.
     pub done: bool,
+    /// When the run began. Elapsed time is measured from here rather than from
+    /// the first chapter event, so it is reported while the run is still
+    /// starting up.
+    pub started_at: Instant,
+    /// When the run ended, once it has. Freezes elapsed time at that instant so
+    /// the final screen reports the run's own duration rather than how long the
+    /// user has been reading it.
+    pub finished_at: Option<Instant>,
+    /// Arrival instants of the most recent terminal chapter events, oldest
+    /// first, capped at [`MAX_RATE_SAMPLES`]. Ordering holds because the
+    /// progress callback stamps each arrival while holding the shared mutex, so
+    /// parallel workers cannot interleave out of order.
+    pub completions: VecDeque<Instant>,
 }
 
 impl DownloadProgress {
@@ -59,6 +101,9 @@ impl DownloadProgress {
             log: Vec::with_capacity(log_capacity),
             log_capacity,
             done: false,
+            started_at: Instant::now(),
+            finished_at: None,
+            completions: VecDeque::with_capacity(MAX_RATE_SAMPLES),
         }
     }
 
@@ -69,19 +114,38 @@ impl DownloadProgress {
 
     /// Record a successful (or skipped) chapter completion.
     pub fn record_completed(&mut self, number: u32, status: CrawlStatus) {
+        self.record_completed_at(number, status, Instant::now());
+    }
+
+    /// Record a successful (or skipped) chapter completion that arrived at
+    /// `now`, contributing one sample to the throughput window.
+    pub fn record_completed_at(&mut self, number: u32, status: CrawlStatus, now: Instant) {
         self.completed += 1;
         let entry = match status {
             CrawlStatus::Written => DownloadLogEntry::Ok(number),
             CrawlStatus::Skipped | CrawlStatus::SkipAll => DownloadLogEntry::Skip(number),
         };
         self.push_log(entry);
+        self.push_sample(now);
     }
 
     /// Record a failed chapter download. `message` is the runner-supplied
     /// error text rendered alongside the chapter number in the TUI log.
     pub fn record_failed(&mut self, number: u32, message: String) {
+        self.record_failed_at(number, message, Instant::now());
+    }
+
+    /// Record a failed chapter download that arrived at `now`. Failures advance
+    /// the run just as completions do, so they contribute a sample too.
+    pub fn record_failed_at(&mut self, number: u32, message: String, now: Instant) {
         self.failed += 1;
         self.push_log(DownloadLogEntry::Fail(number, message));
+        self.push_sample(now);
+    }
+
+    /// Number of arrivals currently held in the throughput window.
+    pub fn rate_samples(&self) -> usize {
+        self.completions.len()
     }
 
     /// Record a run-scoped notice. Counts towards neither `completed` nor
@@ -92,7 +156,54 @@ impl DownloadProgress {
 
     /// Mark the run as done so the TUI flips into "press Enter to continue" mode.
     pub fn finish(&mut self) {
+        self.finish_at(Instant::now());
+    }
+
+    /// Mark the run as done as of `now`, freezing elapsed time at that instant.
+    pub fn finish_at(&mut self, now: Instant) {
         self.done = true;
+        self.finished_at = Some(now);
+    }
+
+    /// Wall-clock time this run has taken as of `now`, or its final duration
+    /// once the run has ended.
+    pub fn elapsed(&self, now: Instant) -> Duration {
+        self.finished_at
+            .unwrap_or(now)
+            .saturating_duration_since(self.started_at)
+    }
+
+    /// Estimated time remaining as of `now`, or `None` when the samples do not
+    /// support an estimate.
+    ///
+    /// Throughput is measured over the arrival window rather than the whole run,
+    /// and the span is stretched to `now` so a stalled run's estimate grows
+    /// instead of reporting the figure that was current when the last chapter
+    /// landed.
+    pub fn eta(&self, now: Instant) -> Option<Duration> {
+        if self.done || self.total == 0 {
+            return None;
+        }
+        let remaining = self.total.saturating_sub(self.advanced());
+        if remaining == 0 {
+            return None;
+        }
+        let oldest = *self.completions.front()?;
+        let newest = *self.completions.back()?;
+        let intervals = self.completions.len().checked_sub(1)?;
+        if intervals == 0 {
+            return None;
+        }
+        let span = newest
+            .saturating_duration_since(oldest)
+            .max(now.saturating_duration_since(oldest));
+        if span < MIN_RATE_SPAN {
+            return None;
+        }
+        let seconds_per_chapter = span.as_secs_f64() / intervals as f64;
+        Some(Duration::from_secs_f64(
+            seconds_per_chapter * f64::from(remaining),
+        ))
     }
 
     /// Total chapters with a terminal event observed (completed + failed).
@@ -104,8 +215,12 @@ impl DownloadProgress {
     pub fn from_event(&mut self, event: ProgressEvent) {
         match event {
             ProgressEvent::Started { number, .. } => self.record_started(number),
-            ProgressEvent::Completed { number, status } => self.record_completed(number, status),
-            ProgressEvent::Failed { number, message } => self.record_failed(number, message),
+            ProgressEvent::Completed { number, status } => {
+                self.record_completed_at(number, status, Instant::now())
+            }
+            ProgressEvent::Failed { number, message } => {
+                self.record_failed_at(number, message, Instant::now())
+            }
             ProgressEvent::ConcurrencyClamped {
                 requested,
                 effective,
@@ -125,6 +240,14 @@ impl DownloadProgress {
         (ratio.clamp(0.0, 1.0) * 100.0).round() as u16
     }
 
+    /// Push an arrival instant while preserving the throughput window's cap.
+    fn push_sample(&mut self, now: Instant) {
+        self.completions.push_back(now);
+        while self.completions.len() > MAX_RATE_SAMPLES {
+            self.completions.pop_front();
+        }
+    }
+
     /// Push `entry` while preserving the rolling-window invariant.
     fn push_log(&mut self, entry: DownloadLogEntry) {
         self.log.push(entry);
@@ -132,6 +255,30 @@ impl DownloadProgress {
             self.log.remove(0);
         }
     }
+}
+
+/// Compose the download gauge's label from `progress` as of `now`.
+///
+/// While the run is in flight the estimate segment is always present, showing a
+/// placeholder when no estimate is available, so the label keeps a stable width
+/// from one redraw to the next. Once the run has ended the segment is dropped
+/// entirely, since nothing redraws after that.
+pub fn gauge_label(progress: &DownloadProgress, now: Instant) -> String {
+    let head = format!(
+        "{} / {}  ({}%)  ⏱ {}",
+        progress.advanced(),
+        progress.total,
+        progress.percent(),
+        format_hms(progress.elapsed(now))
+    );
+    if progress.done {
+        return head;
+    }
+    let estimate = match progress.eta(now) {
+        Some(remaining) => format_hms(remaining),
+        None => "—".to_string(),
+    };
+    format!("{head}  ETA {estimate}")
 }
 
 /// Build a runner progress callback that updates `state` from each event.

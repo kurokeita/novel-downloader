@@ -1,6 +1,6 @@
 ## Context
 
-See `proposal.md` — Why for the motivation, and
+See `proposal.md`, Why for the motivation, and
 `specs/download-progress/spec.md` for the behavior contract. This document
 records the estimator's tuning decisions, which the spec deliberately leaves
 out so that tuning can change without a spec change.
@@ -13,7 +13,7 @@ public fields, constructed only through `new` / `with_log_capacity` at
 one writer: the closure built by `make_tui_progress_callback`, which locks the
 shared mutex and then calls `from_event` with the guard held. Timestamps taken
 inside `from_event` are therefore already serialized, and arrival order is
-monotonic even with eight workers — no sorting, no per-worker bookkeeping.
+monotonic even with eight workers, no sorting, no per-worker bookkeeping.
 
 `run_download_screen` (`src/ui/screens/download.rs`) clones the whole state under
 the lock once per ~80ms redraw tick and renders from the clone. Anything added to
@@ -41,15 +41,15 @@ add.
   two surfaces share an implementation.
 - Distinguishing written from skipped chapters in the estimator. The sliding
   window makes that classification unnecessary, which is the point of choosing
-  it — see Decisions.
+  it: see Decisions.
 
 ## Decisions
 
 ### Ownership: `DownloadProgress` holds the clock, not the screen
 
 The `ui::widgets` module owns the time state and the estimator;
-`ui::screens::download` only composes a label from it. The alternative — a
-screen-local `Instant` as in `loading.rs` — needs no new struct fields, but puts
+`ui::screens::download` only composes a label from it. The alternative, a
+screen-local `Instant` as in `loading.rs`, needs no new struct fields, but puts
 the estimator inside the render loop, which the project does not unit-test. The
 spec's fifteen scenarios only become testable if the logic sits in the widget.
 
@@ -79,8 +79,8 @@ input is a parameter and only one thin wrapper reads the real environment.
 
 No third constructor is added. `Instant` has no arbitrary constructor in `std`,
 so tests take `progress.started_at` as their epoch and add `Duration`s to it.
-The alternative — a `with_started_at` constructor, or threading a clock closure
-through `make_tui_progress_callback` — buys nothing, since `started_at` is
+The alternative, a `with_started_at` constructor, or threading a clock closure
+through `make_tui_progress_callback`, buys nothing, since `started_at` is
 already a public field on a struct whose fields are all public.
 
 The cost is two entry points per mutation, and the discipline that
@@ -97,7 +97,7 @@ eta  = (total - advanced) / rate
 Rejected: `elapsed / advanced * remaining`. It is three lines instead of about
 fifteen, but it is wrong in the common case rather than the rare one. Resuming a
 1000-chapter novel with 900 chapters already on disk and `--fast-skip` set makes
-it report `ETA 00:00:00` for the entire real download — off by roughly 450x
+it report `ETA 00:00:00` for the entire real download, off by roughly 450x
 against a measured khodocsach rate of ~0.8 chapters/s (1.62 req/s at two requests
 per chapter, per `AGENTS.md`). Resuming is the normal way this tool is used.
 
@@ -117,7 +117,7 @@ argument on the writer, and the minimum-span guard below already removes the
 pathologies a bigger window would have been protecting against. Count-based is
 the smaller change; revisit if a real run reads wrong.
 
-### Minimum span of 2s — the guard that does the real work
+### Minimum span of 2s, the guard that does the real work
 
 Below two seconds of sample span, no estimate is reported.
 
