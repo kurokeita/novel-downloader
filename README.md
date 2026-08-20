@@ -17,12 +17,10 @@ error before any network fetch. The hidden `--allow-any-host` flag bypasses the
 check for local mock fixtures and integration tests; it is not intended for
 normal use.
 
-**khodocsach.com is rate limited and therefore slow.** Its API refuses roughly
-anything above 1.6 requests per second, and a chapter costs two requests, so the
-downloader deliberately paces itself to one chapter every two seconds and
-ignores `--workers` above 1 for that host. Expect about 20 minutes for a
-600-chapter novel and about an hour for 2000 chapters. Interrupting a run costs
-nothing: re-run the same command and already-saved chapters are skipped.
+A khodocsach chapter costs two requests, a short-lived ticket followed by the
+chapter content, so its adapter does more work per chapter than the metruyenhot
+scraper does. Interrupting a run costs nothing on either host: re-run the same
+command and already-saved chapters are skipped.
 
 ## Features
 
@@ -33,6 +31,9 @@ nothing: re-run the same command and already-saved chapters are skipped.
 - Run sequentially or with multiple download workers.
 - Choose how to handle existing chapter files: ask, skip, or overwrite.
 - Use an interactive TUI wizard with live download and EPUB build screens.
+- Watch elapsed time and a running estimate on the download screen.
+- Pick from recently used custom EPUB fonts, remembered between wizard runs.
+- Open each EPUB chapter with a drop-capped first character.
 - Build release binaries for Linux, Windows, macOS Intel, and macOS ARM through GitHub Actions.
 
 ## Requirements
@@ -136,26 +137,25 @@ flowchart TD
     B --> C{"interactive or missing URL?"}
     C -->|yes| D["ui wizard collects plan"]
     C -->|no| E["build non-interactive plan"]
-    E --> F["fetch main page"]
-    F --> G["discover title and latest chapter"]
-    D --> H["InteractivePlan"]
-    G --> H
+    D --> F["registry resolves the host to a SiteAdapter"]
+    E --> F
+    F --> G["adapter fetches metadata and the chapter index"]
+    G --> H["selected chapter refs"]
     H --> I{"mode"}
-    I -->|crawl| J["runner downloads chapter range"]
+    I -->|crawl| J["runner walks the chapter refs"]
     I -->|crawl + epub| J
     I -->|epub only| N["use existing chapter directory"]
     J --> K{"workers"}
-    K -->|1| L["sequential crawler"]
-    K -->|many| M["parallel crawler"]
-    L --> O["crawler fetches chapter HTML"]
+    K -->|1| L["sequential runner"]
+    K -->|many| M["parallel runner"]
+    L --> O["adapter fetches one chapter"]
     M --> O
-    O --> P["parse title and chapter paragraphs"]
-    P --> Q["write chapter_NNNN.html"]
+    O --> Q["write chapter_NNNN.html"]
     Q --> R{"build EPUB?"}
     N --> R
     R -->|no| S["finish"]
     R -->|yes| T["epub reads saved chapters"]
-    T --> U["fetch metadata and cover"]
+    T --> U["download the cover, embed the font"]
     U --> V["package EPUB zip"]
     V --> S
 ```
@@ -164,12 +164,14 @@ flowchart TD
 
 - `src/cli.rs`: argument parsing and option validation.
 - `src/bin/novel-downloader.rs`: process entry point and top-level orchestration.
-- `src/crawler/`: chapter HTML fetching, parsing, latest-chapter discovery, and file writes.
-- `src/runner.rs`: sequential and parallel chapter runners with progress events.
-- `src/epub/`: metadata extraction, saved-chapter reading, EPUB XML/XHTML generation, and archive writing.
+- `src/source/`: the site seam. The `SiteAdapter` trait, the shared `Novel`, `ChapterRef`, `RatePolicy` and `SourceError` types, the host registry, and one module per site (`metruyenhot` scrapes HTML, `khodocsach` reads a JSON API).
+- `src/crawler/`: the on-disk chapter document format, plus the fetch-write-skip flow and its existing-file policy.
+- `src/runner.rs`: sequential and parallel chapter runners with progress events, concurrency clamping, and rate-policy pacing.
+- `src/epub/`: saved-chapter reading, cover handling, EPUB XML/XHTML generation, and archive writing.
 - `src/ui/`: interactive TUI widgets, screens, wizard state, and plan summary.
-- `src/utils.rs`: shared URL, filesystem, text-cleaning, and slug helpers.
+- `src/utils.rs`: shared HTTP, filesystem, text-cleaning, and slug helpers.
 - `src/font.rs`: embedded font metadata extraction.
+- `src/recent_fonts.rs`: the recently used custom EPUB fonts remembered for the wizard.
 
 ## Testing
 
