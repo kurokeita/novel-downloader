@@ -276,7 +276,28 @@ below list each submodule's role.
   3. `wizard/` — `run_interactive_flow` driving the `WizardStep` state
      machine (`state.rs`) through per-step renderers (`steps.rs`) and
      returning an `InteractivePlan`. `plan.rs` defines `CrawlMode`,
-     `InteractivePlan`, `SummaryParams`, and `build_summary`.
+     `InteractivePlan`, `SummaryParams`, `build_summary`, and
+     `epub_destination_dir`.
+     The per-mode step order lives in `state.rs`, not in the prompt
+     renderers: `step_after_mode` decides what follows the mode select, so
+     **`EpubOnly` never sees the output-root prompt** and goes straight to
+     `ChapterDir` (whose back target is therefore `Mode`). That mode derives
+     every path from the chapter directory, and the skipped prompt is also
+     the wizard's only `create_dir_all` call site, so build-only runs no
+     longer create an output directory they never use. It is a pure function
+     with inline `#[cfg(test)]` tests because a `tests/` integration test
+     could only reach `pub(super)` wizard internals through a `pub`
+     re-export nothing else needs.
+     `epub_destination_dir` is the **single** rule for where an EPUB is
+     written: the chapter directory for `EpubOnly` (falling back to the
+     inferred per-novel directory that non-interactive `--epub-only` relies
+     on), the per-novel directory under the output root for `CrawlEpub`
+     (any `chapter_dir` is ignored, since that mode writes chapters there),
+     and `None` for `Crawl`. Both `build_summary`'s `EPUB output:` line and
+     the binary read it, so the destination shown at confirmation cannot
+     disagree with the one used; the binary has no `infer_chapter_dir` of its
+     own any more. `build_summary` also omits `Output root:` for `EpubOnly`,
+     which never collects one.
   - `mod.rs` also exposes the shared `palette`, `styled_block`,
     `header_paragraph`, `footer_hint`, `next_key_event`, `is_ctrl_c`
     helpers and the `PromptOutcome<T>` enum used by every prompt.
