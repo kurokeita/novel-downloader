@@ -76,6 +76,34 @@ fn pick_cover_extension_defaults_to_jpg() {
     assert_eq!(pick_cover_extension("https://x/cover", ""), ".jpg");
 }
 
+#[test]
+fn pick_cover_extension_maps_jpeg_to_jpg() {
+    // `.jfif` is a legal JPEG alias that validators refuse to decode.
+    let ext = pick_cover_extension("https://x/cover", "image/jpeg");
+    assert_eq!(ext, ".jpg");
+    assert_ne!(ext, ".jfif");
+}
+
+#[test]
+fn pick_cover_extension_maps_core_image_types() {
+    for (media_type, expected) in [
+        ("image/png", ".png"),
+        ("image/gif", ".gif"),
+        ("image/svg+xml", ".svg"),
+        ("image/webp", ".webp"),
+    ] {
+        assert_eq!(
+            pick_cover_extension("https://x/cover", media_type),
+            expected
+        );
+    }
+}
+
+#[test]
+fn pick_cover_extension_rejects_unrecognized_url_extension() {
+    assert_eq!(pick_cover_extension("https://x/cover.jfif", ""), ".jpg");
+}
+
 #[tokio::test]
 async fn list_chapter_files_returns_sorted_chapter_files() {
     let dir = tempfile::tempdir().unwrap();
@@ -197,6 +225,7 @@ fn content_opf_includes_metadata_and_spine() {
             file_name: "chapter_0001.xhtml".into(),
             title: "C1".into(),
         }],
+        modified: "2026-08-20T08:42:00Z".into(),
     });
     assert!(opf.contains("<dc:title>T</dc:title>"));
     assert!(opf.contains("<dc:creator>A</dc:creator>"));
@@ -204,6 +233,33 @@ fn content_opf_includes_metadata_and_spine() {
     assert!(opf.contains("href=\"cover.jpg\""));
     assert!(opf.contains("href=\"fonts/epub-font.ttf\""));
     assert!(opf.contains("<itemref idref=\"ch1\""));
+}
+
+#[test]
+fn content_opf_declares_dcterms_modified_exactly_once() {
+    let opf = content_opf(ContentOpfParams {
+        identifier: "https://x/".into(),
+        title: "T".into(),
+        author: None,
+        include_cover: false,
+        cover_ext: ".jpg".into(),
+        include_font: false,
+        font_file_name: "epub-font.ttf".into(),
+        chapters: vec![ChapterEntry {
+            id: "ch1".into(),
+            file_name: "chapter_0001.xhtml".into(),
+            title: "C1".into(),
+        }],
+        modified: "2026-08-20T08:42:00Z".into(),
+    });
+    let entry = "<meta property=\"dcterms:modified\">2026-08-20T08:42:00Z</meta>";
+    assert_eq!(opf.matches(entry).count(), 1);
+    let metadata = opf
+        .split_once("<metadata")
+        .and_then(|(_, rest)| rest.split_once("</metadata>"))
+        .map(|(inner, _)| inner)
+        .expect("package document has a metadata element");
+    assert!(metadata.contains(entry));
 }
 
 #[tokio::test]
@@ -326,6 +382,66 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
     }
     assert!(opf_text.contains("<dc:creator>Người Viết</dc:creator>"));
     assert!(opf_text.contains("<dc:title>Truyện Đẹp</dc:title>"));
+}
+
+#[tokio::test]
+async fn build_epub_stamps_a_whole_second_utc_modification_timestamp() {
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Hello.</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let output = tmp.path().join("out.epub");
+    build_epub(BuildEpubParams {
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "T".to_string(),
+        novel_author: None,
+        cover_url: None,
+        chapter_dir,
+        output_epub: Some(output.clone()),
+        font_path: None,
+        metadata_override: None,
+    })
+    .await
+    .unwrap();
+
+    let bytes = tokio::fs::read(&output).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut opf_text = String::new();
+    {
+        let mut opf = archive.by_name("EPUB/content.opf").unwrap();
+        opf.read_to_string(&mut opf_text).unwrap();
+    }
+
+    let open = "<meta property=\"dcterms:modified\">";
+    assert_eq!(opf_text.matches(open).count(), 1, "opf: {opf_text}");
+    let value = opf_text
+        .split_once(open)
+        .and_then(|(_, rest)| rest.split_once("</meta>"))
+        .map(|(value, _)| value)
+        .expect("package document declares dcterms:modified");
+    // CCYY-MM-DDThh:mm:ssZ: no fractional seconds, no numeric offset.
+    assert_eq!(value.len(), 20, "timestamp: {value}");
+    assert!(value.ends_with('Z'), "timestamp: {value}");
+    let digits_and_separators =
+        value
+            .chars()
+            .zip("0000-00-00T00:00:00Z".chars())
+            .all(|(actual, shape)| match shape {
+                '0' => actual.is_ascii_digit(),
+                expected => actual == expected,
+            });
+    assert!(digits_and_separators, "timestamp: {value}");
 }
 
 #[test]

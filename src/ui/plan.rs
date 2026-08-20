@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::crawler::ExistingFilePolicy;
 use crate::source::ChapterRef;
+use crate::utils::slugify;
 
 /// Top-level operating mode chosen during the interactive flow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -12,6 +13,32 @@ pub enum CrawlMode {
     CrawlEpub,
     /// Skip downloading and only build the EPUB from existing files.
     EpubOnly,
+}
+
+/// Directory the EPUB will be written into, or `None` when the plan builds no
+/// EPUB or carries nothing to derive a directory from. The confirmation
+/// summary and the run both read this, so the destination shown to the user
+/// cannot disagree with the one used.
+///
+/// Build-only runs use the chapter directory they were given, falling back to
+/// the inferred per-novel directory the non-interactive `--epub-only` path
+/// relies on. Crawl-and-build ignores any chapter directory, because that mode
+/// writes chapters beneath the output root and the EPUB lands with them.
+pub fn epub_destination_dir(
+    mode: CrawlMode,
+    output_root: &Path,
+    chapter_dir: Option<&Path>,
+    novel_title: Option<&str>,
+) -> Option<PathBuf> {
+    let inferred = || novel_title.map(|title| output_root.join(slugify(title, "book")));
+    match mode {
+        CrawlMode::Crawl => None,
+        CrawlMode::EpubOnly => match chapter_dir {
+            Some(dir) => Some(dir.to_path_buf()),
+            None => inferred(),
+        },
+        CrawlMode::CrawlEpub => inferred(),
+    }
 }
 
 /// Outcome of the interactive flow when the user confirms the plan.
@@ -113,8 +140,15 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
         format!("Base URL: {}", base_url),
         format!("Source: {}", source),
         format!("Mode: {}", mode_label),
-        format!("Output root: {}", output_root.display()),
     ];
+    // Build-only runs are never asked for an output root, so naming one would
+    // report a directory the user never chose and the run never touches.
+    if mode != CrawlMode::EpubOnly {
+        lines.push(format!("Output root: {}", output_root.display()));
+    }
+    if let Some(dir) = epub_destination_dir(mode, output_root, chapter_dir, novel_title) {
+        lines.push(format!("EPUB output: {}", dir.display()));
+    }
 
     let has_chapter_range = matches!(chapter_numbers, Some(c) if !c.is_empty());
     if let Some(chapters) = chapter_numbers

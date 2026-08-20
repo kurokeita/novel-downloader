@@ -165,12 +165,25 @@ below list each submodule's role.
 - **`epub/`** — split across four files, re-exported from
   `epub/mod.rs`:
   - `cover.rs` — `pick_cover_extension` only; the main-page
-    extractors live in the metruyenhot adapter.
+    extractors live in the metruyenhot adapter. It maps the EPUB 3 core
+    image media types to canonical extensions through an explicit match
+    (`image/jpeg` to `.jpg`, and so on) and gates the URL-path fallback on
+    the same allow-list (`.jpg`, `.jpeg`, `.png`, `.gif`, `.svg`,
+    `.webp`), defaulting to `.jpg`. The old reverse
+    `mime_guess::get_mime_extensions_str(..).first()` lookup is gone
+    because its alias list is alphabetical: `image/jpeg` resolved to
+    `.jfif`, which `epubcheck` reports as a corrupt image (PKG-021). The
+    forward `mime_guess::from_ext` lookup in `content_opf` stays, since it
+    is now only ever handed a canonical extension.
   - `chapters.rs` — `list_chapter_files`,
     `extract_title_and_body_from_saved_chapter`, `SavedChapter`.
   - `package.rs` — XHTML/NCX/OPF/nav builders (`chapter_xhtml`,
     `title_page_xhtml`, `nav_xhtml`, `ncx_xml`, `content_opf`,
-    `ChapterEntry`, `ContentOpfParams`). `chapter_xhtml` also opens each
+    `ChapterEntry`, `ContentOpfParams`). `ContentOpfParams` carries a
+    `modified` string that `content_opf` emits as the EPUB 3 mandatory
+    `<meta property="dcterms:modified">` entry; it is an input rather than a
+    clock read so the renderer stays pure and its golden-output tests stay
+    deterministic. `chapter_xhtml` also opens each
     chapter with a **drop cap**: `split_drop_cap` NFC-normalizes the first
     paragraph's leading text (so a decomposed `Ế` becomes one `char` instead
     of a base letter with its marks stranded) and returns `None` unless that
@@ -189,7 +202,14 @@ below list each submodule's role.
     NCX source URL (mimetype is the
     first STORE-compressed entry per spec). Bundled `Bokerlam.ttf` is
     embedded when present; cover extension is picked first from the
-    response Content-Type, then the URL path, then `.jpg`. `build_main_css`
+    response Content-Type, then the URL path, then `.jpg`. It also stamps
+    the package modification timestamp: `package_modified_timestamp` takes
+    `OffsetDateTime::now_utc()`, zeroes the nanoseconds (`Rfc3339` would
+    otherwise emit a fractional-seconds component that EPUB 3 rejects) and
+    formats with the well-known `Rfc3339`, whose zero offset renders as
+    `Z`. That is why `time` is a direct dependency with only `std` and
+    `formatting`: the `macros` feature would pull `time-macros` for no
+    gain. `build_main_css`
     also emits the drop cap rules: `p.dropcap-para { text-indent: 0 }` to
     cancel the usual `2em` indent, and a `.dropcap` block whose `font-size`,
     `line-height` and `margin-right` are the tuning knob. Those three can
@@ -256,7 +276,28 @@ below list each submodule's role.
   3. `wizard/` — `run_interactive_flow` driving the `WizardStep` state
      machine (`state.rs`) through per-step renderers (`steps.rs`) and
      returning an `InteractivePlan`. `plan.rs` defines `CrawlMode`,
-     `InteractivePlan`, `SummaryParams`, and `build_summary`.
+     `InteractivePlan`, `SummaryParams`, `build_summary`, and
+     `epub_destination_dir`.
+     The per-mode step order lives in `state.rs`, not in the prompt
+     renderers: `step_after_mode` decides what follows the mode select, so
+     **`EpubOnly` never sees the output-root prompt** and goes straight to
+     `ChapterDir` (whose back target is therefore `Mode`). That mode derives
+     every path from the chapter directory, and the skipped prompt is also
+     the wizard's only `create_dir_all` call site, so build-only runs no
+     longer create an output directory they never use. It is a pure function
+     with inline `#[cfg(test)]` tests because a `tests/` integration test
+     could only reach `pub(super)` wizard internals through a `pub`
+     re-export nothing else needs.
+     `epub_destination_dir` is the **single** rule for where an EPUB is
+     written: the chapter directory for `EpubOnly` (falling back to the
+     inferred per-novel directory that non-interactive `--epub-only` relies
+     on), the per-novel directory under the output root for `CrawlEpub`
+     (any `chapter_dir` is ignored, since that mode writes chapters there),
+     and `None` for `Crawl`. Both `build_summary`'s `EPUB output:` line and
+     the binary read it, so the destination shown at confirmation cannot
+     disagree with the one used; the binary has no `infer_chapter_dir` of its
+     own any more. `build_summary` also omits `Output root:` for `EpubOnly`,
+     which never collects one.
   - `mod.rs` also exposes the shared `palette`, `styled_block`,
     `header_paragraph`, `footer_hint`, `next_key_event`, `is_ctrl_c`
     helpers and the `PromptOutcome<T>` enum used by every prompt.

@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use std::io::Write;
 use std::path::PathBuf;
+use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use zip::CompressionMethod;
 use zip::write::SimpleFileOptions;
 
@@ -115,6 +117,18 @@ pub fn epub_file_stem(title: &str, author: Option<&str>) -> String {
     }
 }
 
+/// Current UTC instant formatted for the EPUB 3 `dcterms:modified` entry as
+/// `CCYY-MM-DDThh:mm:ssZ`. The nanoseconds are zeroed first because `Rfc3339`
+/// emits a fractional-seconds component whenever they are non-zero, and EPUB 3
+/// accepts only the whole-second form with a `Z` offset.
+fn package_modified_timestamp() -> Result<String> {
+    OffsetDateTime::now_utc()
+        .replace_nanosecond(0)
+        .context("failed to zero the sub-second part of the current time")?
+        .format(&Rfc3339)
+        .context("failed to format the package modification timestamp")
+}
+
 /// Assemble the EPUB archive at `output_epub` from previously-saved chapter
 /// HTML files in `chapter_dir`. Metadata and the cover URL arrive with the
 /// params, so no HTML is read here; downloads the cover, embeds the font when
@@ -200,6 +214,7 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
         include_font: font_bytes.is_some(),
         font_file_name: embedded_font_file_name.clone(),
         chapters: chapter_entries.clone(),
+        modified: package_modified_timestamp()?,
     });
     let nav = nav_xhtml(&novel_title, &chapter_entries);
     let ncx = ncx_xml(&novel_title, &params.novel_main_url, &chapter_entries);

@@ -16,10 +16,9 @@ use novel_downloader::runner::{
 use novel_downloader::source::registry::{resolve, validate_url};
 use novel_downloader::source::{ChapterRef, SiteAdapter};
 use novel_downloader::ui::{
-    CrawlMode, DownloadProgress, InteractivePlan, make_tui_progress_callback, run_download_screen,
-    run_interactive_flow,
+    CrawlMode, DownloadProgress, InteractivePlan, epub_destination_dir, make_tui_progress_callback,
+    run_download_screen, run_interactive_flow,
 };
-use novel_downloader::utils::slugify;
 
 /// Non-TUI prompt for existing chapter files. Reads a line from stdin and
 /// maps r/s/a to the [`ExistingChapterDecision`] variants. Defaults to Skip
@@ -189,15 +188,6 @@ fn make_progress_callback(bar: ProgressBar) -> ProgressCallback {
             bar.inc(1);
         }
     })
-}
-
-/// Resolve the per-novel chapter directory used for an `epub_only` run when
-/// no explicit `--chapter-dir` was provided. Uses the title the plan already
-/// carries, so no second main-page fetch is needed.
-fn infer_chapter_dir(novel_title: Option<&str>, output_root: &std::path::Path) -> Result<PathBuf> {
-    let title = novel_title
-        .ok_or_else(|| anyhow::anyhow!("no novel title available to derive the directory from"))?;
-    Ok(output_root.join(slugify(title, "book")))
 }
 
 /// Drive a chapter run with an indicatif progress bar (non-interactive mode).
@@ -382,15 +372,19 @@ async fn execute_plan(
     let mut failures: Vec<(u32, String)> = Vec::new();
 
     if plan.mode == CrawlMode::EpubOnly {
-        output_dir = match plan.chapter_dir.clone() {
+        output_dir = match epub_destination_dir(
+            plan.mode,
+            &plan.output_root,
+            plan.chapter_dir.as_deref(),
+            plan.novel_title.as_deref(),
+        ) {
             Some(dir) => Some(dir),
-            None => match infer_chapter_dir(plan.novel_title.as_deref(), &plan.output_root) {
-                Ok(p) => Some(p),
-                Err(error) => {
-                    eprintln!("[FAIL] Could not infer chapter directory: {}", error);
-                    return 3;
-                }
-            },
+            None => {
+                eprintln!(
+                    "[FAIL] Could not infer chapter directory: no novel title available to derive the directory from"
+                );
+                return 3;
+            }
         };
     } else {
         let numbers = plan.chapter_numbers.clone().unwrap_or_default();

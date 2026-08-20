@@ -3,8 +3,9 @@ use novel_downloader::crawler::CrawlStatus;
 use novel_downloader::crawler::ExistingFilePolicy;
 use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, expand_tilde,
-    format_hms, gauge_label, longest_common_prefix, path_completions, prompt_block_height,
+    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, epub_destination_dir,
+    expand_tilde, format_hms, gauge_label, longest_common_prefix, path_completions,
+    prompt_block_height,
 };
 use std::time::Duration;
 
@@ -660,6 +661,11 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
     );
     assert!(summary.contains("Build EPUB: yes"));
     assert!(summary.contains("/tmp/MyFont.ttf"));
+    assert!(
+        summary.contains("EPUB output: /tmp/out/ten_truyen"),
+        "expected the per-novel directory beneath the output root, got:\n{}",
+        summary
+    );
 }
 
 #[test]
@@ -697,6 +703,43 @@ fn build_summary_marks_fast_skip_no_when_disabled() {
     });
     assert!(summary.contains("Fast skip: no"));
     assert!(summary.contains("Build EPUB: no"));
+    assert!(
+        !summary.contains("EPUB output:"),
+        "a download-only run writes no EPUB, got:\n{}",
+        summary
+    );
+}
+
+#[test]
+fn build_summary_names_the_epub_destination_for_build_only() {
+    let chapter_dir = std::path::PathBuf::from("/books/my-novel");
+    let summary = build_summary(SummaryParams {
+        source: "khodocsach",
+        base_url: "https://khodocsach.com/my-novel.kds/",
+        mode: CrawlMode::EpubOnly,
+        output_root: std::path::Path::new("output"),
+        chapter_numbers: None,
+        delay: 0.0,
+        workers: 1,
+        if_exists: ExistingFilePolicy::Skip,
+        chapter_dir: Some(chapter_dir.as_path()),
+        font_path: None,
+        fast_skip: false,
+        novel_title: Some("My Novel"),
+        novel_author: None,
+    });
+    assert!(
+        summary.contains("EPUB output: /books/my-novel"),
+        "expected the chapter directory as the destination, got:\n{}",
+        summary
+    );
+    // The wizard never asks for an output root in this mode, so reporting one
+    // would name a directory the user never chose and the run never touches.
+    assert!(
+        !summary.contains("Output root:"),
+        "expected no output root line, got:\n{}",
+        summary
+    );
 }
 
 #[test]
@@ -732,4 +775,86 @@ fn expand_tilde_does_not_touch_tilde_user_form() {
     // We only resolve the current user's $HOME, not ~someone-else.
     unsafe { std::env::set_var("HOME", "/Users/tester") };
     assert_eq!(expand_tilde("~bob/foo").as_ref(), "~bob/foo");
+}
+
+#[test]
+fn epub_destination_dir_is_the_chapter_dir_for_build_only() {
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::EpubOnly,
+            std::path::Path::new("output"),
+            Some(std::path::Path::new("/books/my-novel")),
+            Some("My Novel"),
+        ),
+        Some(std::path::PathBuf::from("/books/my-novel"))
+    );
+}
+
+#[test]
+fn epub_destination_dir_infers_the_per_novel_dir_when_no_chapter_dir_is_given() {
+    // Mirrors the non-interactive `--epub-only` path, which has no
+    // `--chapter-dir` to work from.
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::EpubOnly,
+            std::path::Path::new("output"),
+            None,
+            Some("My Novel"),
+        ),
+        Some(std::path::PathBuf::from("output/my_novel"))
+    );
+}
+
+#[test]
+fn epub_destination_dir_is_under_the_output_root_for_crawl_epub() {
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::CrawlEpub,
+            std::path::Path::new("output"),
+            None,
+            Some("My Novel"),
+        ),
+        Some(std::path::PathBuf::from("output/my_novel"))
+    );
+}
+
+#[test]
+fn epub_destination_dir_ignores_a_chapter_dir_when_chapters_are_downloaded() {
+    // Crawl-and-build writes chapters beneath the output root, so a chapter
+    // directory the run never reads must not be reported as the destination.
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::CrawlEpub,
+            std::path::Path::new("output"),
+            Some(std::path::Path::new("/books/elsewhere")),
+            Some("My Novel"),
+        ),
+        Some(std::path::PathBuf::from("output/my_novel"))
+    );
+}
+
+#[test]
+fn epub_destination_dir_is_none_when_no_epub_is_built() {
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::Crawl,
+            std::path::Path::new("output"),
+            None,
+            Some("My Novel"),
+        ),
+        None
+    );
+}
+
+#[test]
+fn epub_destination_dir_is_none_when_the_title_is_unknown() {
+    assert_eq!(
+        epub_destination_dir(
+            CrawlMode::CrawlEpub,
+            std::path::Path::new("output"),
+            None,
+            None,
+        ),
+        None
+    );
 }

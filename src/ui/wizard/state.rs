@@ -6,6 +6,7 @@ use crate::recent_fonts::RecentFont;
 use crate::source::ChapterRef;
 use crate::ui::plan::{CrawlMode, InteractivePlan};
 
+#[derive(Debug, PartialEq, Eq)]
 pub(super) enum WizardStep {
     Welcome,
     BaseUrl,
@@ -24,6 +25,16 @@ pub(super) enum WizardStep {
     FontChoice,
     FontPath,
     Confirm,
+}
+
+/// Step that follows the mode select. Build-only runs derive every path from
+/// the chapter directory they ask for next, so they never see the output-root
+/// prompt; the download modes write beneath it and do.
+pub(super) fn step_after_mode(mode: CrawlMode) -> WizardStep {
+    match mode {
+        CrawlMode::EpubOnly => WizardStep::ChapterDir,
+        CrawlMode::Crawl | CrawlMode::CrawlEpub => WizardStep::OutputRoot,
+    }
 }
 
 /// Outcome of running one wizard step.
@@ -115,5 +126,27 @@ impl WizardState {
             recent_fonts: None,
             allow_any_host: options.allow_any_host,
         }
+    }
+}
+
+/// Tested inline because `WizardStep` and the transition are `pub(super)`:
+/// an integration test under `tests/` could only reach them through a `pub`
+/// re-export the wizard has no use for.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_after_mode_skips_the_output_root_for_epub_only() {
+        assert_eq!(step_after_mode(CrawlMode::EpubOnly), WizardStep::ChapterDir);
+    }
+
+    #[test]
+    fn step_after_mode_keeps_the_output_root_for_download_modes() {
+        assert_eq!(step_after_mode(CrawlMode::Crawl), WizardStep::OutputRoot);
+        assert_eq!(
+            step_after_mode(CrawlMode::CrawlEpub),
+            WizardStep::OutputRoot
+        );
     }
 }

@@ -10,7 +10,7 @@ use crate::ui::screens::{
 };
 use crate::ui::widgets::{Select, SelectOption, Validator, expand_tilde};
 
-use super::state::{FontChoice, StepResult, WizardState, WizardStep};
+use super::state::{FontChoice, StepResult, WizardState, WizardStep, step_after_mode};
 
 macro_rules! advance_or_back {
     ($outcome:expr, $previous:expr, |$value:ident| $on_submit:block) => {
@@ -91,7 +91,7 @@ pub(super) fn step_mode(state: &mut WizardState) -> Result<StepResult> {
     )?;
     advance_or_back!(outcome, WizardStep::BaseUrl, |chosen| {
         state.mode = chosen;
-        Ok(StepResult::Next(WizardStep::OutputRoot))
+        Ok(StepResult::Next(step_after_mode(state.mode)))
     })
 }
 
@@ -118,12 +118,7 @@ pub(super) fn step_output_root(state: &mut WizardState) -> Result<StepResult> {
             return Ok(StepResult::Next(WizardStep::OutputRoot));
         }
         state.output_root = path;
-        let next = if state.mode == CrawlMode::EpubOnly {
-            WizardStep::ChapterDir
-        } else {
-            WizardStep::Discover
-        };
-        Ok(StepResult::Next(next))
+        Ok(StepResult::Next(WizardStep::Discover))
     })
 }
 
@@ -477,7 +472,7 @@ pub(super) fn step_chapter_dir(state: &mut WizardState) -> Result<StepResult> {
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned()),
     )?;
-    advance_or_back!(outcome, WizardStep::OutputRoot, |value| {
+    advance_or_back!(outcome, WizardStep::Mode, |value| {
         state.chapter_dir = Some(PathBuf::from(expand_tilde(value.trim()).as_ref()));
         Ok(StepResult::Next(WizardStep::Title))
     })
