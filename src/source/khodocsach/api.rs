@@ -182,7 +182,12 @@ mod tests {
         let content: ChapterContentResponse = serde_json::from_str(CONTENT_JSON).unwrap();
         assert_eq!(content.title, "Chương 1: Một");
         assert!(content.can_read);
-        assert!(!content.content.contains('<'));
+        assert!(
+            content.content.ends_with(r#"<div class="chapter-nav" "#),
+            "the wire format wraps chapter prose in ad and nav markup and truncates the \
+             last tag mid-way; discarding all that is parser::split_paragraphs' job, so \
+             this hop must hand it over intact"
+        );
     }
 
     #[test]
