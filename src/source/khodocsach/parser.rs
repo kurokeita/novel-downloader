@@ -8,9 +8,18 @@ use url::Url;
 
 use crate::utils::{clean_text, is_noise};
 
-/// Pre-compiled regex matching a single HTML tag. The book description is the
-/// only markup khodocsach serves, so a tag strip beats pulling in a parser.
-static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]*>").unwrap());
+/// Pre-compiled regex matching one HTML tag, or a tag left unterminated at the
+/// very end of the input. khodocsach serves markup in the book description and
+/// around chapter prose, but in both cases it is a flat handful of tags to
+/// discard rather than a tree to walk, so a strip beats pulling in a parser.
+///
+/// The second branch exists because the chapter endpoint truncates its own
+/// payload mid-tag: content ends `…<hr class="chapter-end"><div class="chapter-nav" `
+/// with no closing `>`, and that fragment shares its line with real prose, so
+/// it can be neither matched by the first branch nor dropped with its line. It
+/// requires a letter straight after the `<` so arithmetic in the prose (`a < b`,
+/// `5 < 10`) is left alone, which is the same cue an HTML tokenizer takes.
+static TAG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]*>|</?[a-zA-Z][^>]*$").unwrap());
 
 /// First path segment of a khodocsach URL that is never a book: taxonomy
 /// archives and the API itself. A single-segment taxonomy URL would otherwise
@@ -70,20 +79,27 @@ pub(super) fn book_slug_from_url(url: &str) -> Result<String> {
     Ok(slug.to_string())
 }
 
-/// Flatten the HTML book description into a single plain-text line. Tags
+/// Flatten a fragment of khodocsach HTML into a single plain-text line. Tags
 /// become spaces so `<p>a</p><p>b</p>` does not run together as `ab`, then
-/// [`clean_text`] decodes entities and collapses the whitespace.
+/// [`clean_text`] decodes entities and collapses the whitespace. Stripping
+/// before decoding is load-bearing: decoding first would turn an escaped
+/// `&lt;b&gt;` in the prose into a tag this strip then swallows, silently
+/// eating the text between the brackets.
 pub(super) fn strip_html_to_text(html: &str) -> String {
     clean_text(&TAG_RE.replace_all(html, " "))
 }
 
-/// Split plain-text chapter content into ordered paragraphs. khodocsach sends
-/// one paragraph per line with no markup, so a line is a paragraph; blank
-/// lines and known boilerplate are dropped and reading order is preserved.
+/// Split chapter content into ordered paragraphs. khodocsach sends one
+/// paragraph per line, but wraps the prose in the ad and nav markup its own
+/// reader strips client-side: two `div`s for ad slots, an `hr.chapter-end` and
+/// a `div.chapter-nav`. That markup shares a line with real prose, so each
+/// line goes through [`strip_html_to_text`] rather than being dropped whole;
+/// lines left empty by the strip fall to [`is_noise`] along with blank lines
+/// and known boilerplate. Reading order is preserved.
 pub(super) fn split_paragraphs(content: &str) -> Vec<String> {
     content
         .lines()
-        .map(clean_text)
+        .map(strip_html_to_text)
         .filter(|line| !is_noise(line))
         .collect()
 }
@@ -212,5 +228,45 @@ mod tests {
     #[test]
     fn split_paragraphs_returns_empty_for_content_with_nothing_usable() {
         assert!(split_paragraphs("   \n\n\t").is_empty());
+    }
+
+    #[test]
+    fn split_paragraphs_strips_the_ad_and_nav_markup_that_wraps_every_chapter() {
+        assert_eq!(
+            split_paragraphs(concat!(
+                r#"<div class="ads-responsive incontent-ad" id="ads-chapter-pc-top"></div>Một."#,
+                "\nHai.\n",
+                r#"</div><hr class="chapter-end"><div class="chapter-nav">"#
+            )),
+            vec!["Một.", "Hai."],
+            "the tags go, the prose sharing their line stays, and a markup-only line drops"
+        );
+    }
+
+    #[test]
+    fn split_paragraphs_strips_the_tag_the_endpoint_truncates_mid_way() {
+        assert_eq!(
+            split_paragraphs("Một.\nHai.<hr class=\"chapter-end\"><div class=\"chapter-nav\" "),
+            vec!["Một.", "Hai."],
+            "the payload ends mid-tag, and that fragment shares its line with prose"
+        );
+    }
+
+    #[test]
+    fn split_paragraphs_keeps_a_comparison_that_only_looks_like_a_truncated_tag() {
+        assert_eq!(
+            split_paragraphs("Một.\nHắn thấy a < b"),
+            vec!["Một.", "Hắn thấy a < b"],
+            "a bare `<` with no letter behind it is arithmetic, not a tag"
+        );
+    }
+
+    #[test]
+    fn split_paragraphs_leaves_an_escaped_angle_bracket_in_the_prose() {
+        assert_eq!(
+            split_paragraphs("<p>Điều kiện: a &lt;b&gt; c</p>"),
+            vec!["Điều kiện: a <b> c"],
+            "stripping before decoding is what keeps `&lt;b&gt;` from being eaten as a tag"
+        );
     }
 }
