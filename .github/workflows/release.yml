@@ -109,11 +109,7 @@ jobs:
   publish-homebrew:
     name: Publish Homebrew formula
     needs: build
-    # FROZEN for the novel-downloader rename overhaul. A tag pushed mid-rename
-    # would push a half-renamed formula to the public tap, which is awkward to
-    # retract. Re-enabled with the 2.0.0 release by restoring:
-    #   if: startsWith(github.ref, 'refs/tags/')
-    if: false
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Render formula
@@ -197,11 +193,7 @@ jobs:
   publish-winget:
     name: Publish to winget
     needs: build
-    # FROZEN for the novel-downloader rename overhaul. Winget identifiers are
-    # immutable upstream, so a mismatched manifest cannot be edited away.
-    # Re-enabled with the 2.0.0 release by restoring:
-    #   if: startsWith(github.ref, 'refs/tags/')
-    if: false
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     steps:
       - name: Submit manifest
