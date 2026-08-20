@@ -203,6 +203,10 @@ pub struct ContentOpfParams {
     pub font_file_name: String,
     /// Per-chapter manifest + spine entries.
     pub chapters: Vec<ChapterEntry>,
+    /// Package modification instant as `CCYY-MM-DDThh:mm:ssZ`. Required by
+    /// EPUB 3 and passed in rather than read from the clock here, so this
+    /// renderer stays a pure function of its inputs.
+    pub modified: String,
 }
 
 /// Render the EPUB 3 package document.
@@ -266,7 +270,8 @@ pub fn content_opf(params: ContentOpfParams) -> String {
     <dc:identifier id=\"BookId\">{ident}</dc:identifier>\n\
     <dc:title>{title}</dc:title>\n\
     <dc:language>vi</dc:language>\n\
-{author}{cover_meta}  </metadata>\n\
+{author}    <meta property=\"dcterms:modified\">{modified}</meta>\n\
+{cover_meta}  </metadata>\n\
   <manifest>\n\
     <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n\
     <item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>\n\
@@ -283,6 +288,7 @@ pub fn content_opf(params: ContentOpfParams) -> String {
         ident = escape_xml(&params.identifier),
         title = escape_xml(&params.title),
         author = author_metadata,
+        modified = escape_xml(&params.modified),
         cover_meta = cover_meta,
         cover_manifest = cover_manifest,
         font_manifest = font_manifest,
