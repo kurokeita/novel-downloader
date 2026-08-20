@@ -544,7 +544,7 @@ async fn build_epub_drop_caps_the_chapter_but_not_the_title_page() {
 }
 
 #[tokio::test]
-async fn build_epub_stylesheet_carries_the_drop_cap_rules() {
+async fn build_epub_stylesheet_carries_the_drop_cap_and_toc_list_rules() {
     let tmp = tempfile::tempdir().unwrap();
     let chapter_dir = tmp.path().join("chapters");
     tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
@@ -587,6 +587,8 @@ async fn build_epub_stylesheet_carries_the_drop_cap_rules() {
     assert!(css.contains("text-indent: 0;"));
     assert!(css.contains(".dropcap {"));
     assert!(css.contains("float: left;"));
+    assert!(css.contains("nav ol {"));
+    assert!(css.contains("padding-left: 4em;"));
 }
 
 #[test]

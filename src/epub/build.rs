@@ -76,6 +76,11 @@ body {{\n  font-family: '{family}', serif;\n  line-height: 1.8;\n  margin: 0%;\n
 h1 {{\n  text-align: center;\n  font-size: 2.2em;\n  font-weight: bold;\n  margin: 2.5em 0 1.5em 0;\n  padding: 0;\n}}\n\n\
 p {{\n  margin: 0 0 0.9em 0;\n  text-indent: 2em;\n  text-align: justify;\n}}\n\n\
 p.dropcap-para {{\n  text-indent: 0;\n}}\n\n\
+/* The nav list markers are drawn outside the item box, inside the list's\n\
+   own padding. A reader default of ~40px is not enough for a four-digit\n\
+   marker in a proportional-figure font, and `body` has no margin to spill\n\
+   into, so the leading digit gets clipped for the wider numbers only. */\n\
+nav ol {{\n  padding-left: 4em;\n}}\n\n\
 /* Tuning knob: these three decide how the drop cap sits against the body\n\
    text, and they can only be measured on a device. The float reserves a box\n\
    of font-size times line-height, and text wraps around whole lines of it,\n\
