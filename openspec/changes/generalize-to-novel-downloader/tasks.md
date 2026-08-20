@@ -4,9 +4,9 @@ Rename by reviewing each tracked file that contains `truyenazz` (`git grep -il t
 
 **Do not `sed` the repo**: task 1.4 names a `truyenazz` string that must survive untouched.
 
-Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the tap cleanup and the re-enable all land together in section 8.
+Version stays at `1.1.0` through sections 1 to 7. The bump, the repo rename, the tap cleanup and the re-enable all land together in section 7.
 
-- [x] 1.1 Disable the `publish-homebrew` and `publish-winget` jobs in `.github/workflows/release.yml` so a tag pushed mid-overhaul cannot ship a half-renamed package; leave the `build` job and the GitHub release upload live as a test channel. Re-enabled in 8.3
+- [x] 1.1 Disable the `publish-homebrew` and `publish-winget` jobs in `.github/workflows/release.yml` so a tag pushed mid-overhaul cannot ship a half-renamed package; leave the `build` job and the GitHub release upload live as a test channel. Re-enabled in 7.5
 - [x] 1.2 Rename package `truyenazz-crawler` → `novel-downloader`, lib target `truyenazz_crawler` → `novel_downloader`, and bin target `truyenazz-crawl` → `novel-downloader` in `Cargo.toml`; rewrite `description` to drop "TruyenAZZ"; add the missing `repository` field pointing at the new URL; leave `version` alone
 - [x] 1.3 Rename `src/bin/truyenazz-crawl.rs` → `src/bin/novel-downloader.rs` and update every `truyenazz_crawler::` path across `src/` and `tests/`
 - [x] 1.4 Update the user-facing program name in `src/cli.rs` (clap `name`, line 35, and the doc comment at line 131), `src/ui/mod.rs` (TUI banner, line 95) and `src/ui/wizard/steps.rs` (line 27); **leave the `" - truyenazz"` title-suffix regex in `src/epub/metadata.rs:9-12` exactly as it is**, since it matches metruyenhot page content, not this project's name
@@ -85,12 +85,14 @@ Already landed by PR 3, so PR 4 does not repeat it: `ChapterRef` exists in `src/
 
 ## 7. Release 2.0.0
 
-Everything here lands in one final PR, after sections 1 to 6 are merged.
+Everything here lands in one final PR, after sections 1 to 6 are merged. 7.1 and 7.2 come first so the documentation and the tooling ship inside 2.0.0 rather than trailing it.
 
-- [ ] 7.1 Bump version `1.1.0` → `2.0.0` (breaking: crate name, binary name, and public API all change)
-- [ ] 7.2 Rename the GitHub repository `kurokeita/truyenazz-crawler` → `kurokeita/novel-downloader` and update the local remote; GitHub redirects the old URL, so this is safe to do at any point but is grouped here so all outward-facing identity flips together
-- [ ] 7.3 Re-enable the `publish-homebrew` and `publish-winget` jobs disabled in 1.1, now pointing at the new formula and the new winget identifier
-- [ ] 7.4 Write the 2.0.0 release notes leading with the rename, giving the uninstall-then-reinstall command for both Homebrew and winget; a deleted formula and an abandoned winget identifier both fail silently, so nothing else will tell existing users
-- [ ] 7.5 Tag and release; confirm the assets, the new Homebrew formula and the new winget manifest all publish
-- [ ] 7.6 **Only after 2.0.0 has published**, delete `Formula/truyenazz-crawler.rb` from the `kurokeita/homebrew-brew` tap; add no `oldname` alias (clean break, per design.md). Deleting it earlier would strand 1.1.0 users with no replacement for the length of the overhaul
-- [ ] 7.7 Verify `brew install kurokeita/brew/novel-downloader` and `winget install Kurokeita.NovelDownloader` both work from a clean machine
+- [ ] 7.1 Audit `README.md` against the merged code, **before** the release notes in 7.6. Tasks 1.9 and 5.12 only covered the rename and the khodocsach addition, so four things drifted: the Code Layout list omits `src/source/` (the whole `SiteAdapter` seam from sections 2 to 4) and `src/recent_fonts.rs`; that list still credits `src/epub/` with "metadata extraction" (`src/epub/metadata.rs` was deleted in 4.8 to 4.10) and `src/crawler/` with parsing and latest-chapter discovery (both moved into `src/source/metruyenhot/` in section 3); the mermaid flowchart's "parse title and chapter paragraphs" and "fetch metadata and cover" nodes describe the pre-refactor flow where the EPUB writer re-fetched the main page, and it shows no source-resolution step at all; and three features shipping in 2.0.0 from outside this change are undocumented (remembered EPUB fonts, the TUI elapsed/ETA gauge, chapter drop caps). The CLI flag list matches `src/cli.rs` one for one and needs no edit, and the rate-limit prose above "How It Works" is accurate as written
+- [ ] 7.2 Write a `new-site-adapter` skill at `.agents/skills/new-site-adapter/SKILL.md`, with the matching `.claude/skills/new-site-adapter` symlink the other three skills use, covering how to add a site: implement `SiteAdapter` in a new `src/source/<site>/` module, map the host in `src/source/registry.rs`, pick a `RatePolicy` and justify it, decide what rides on the opaque locator, and record fixtures under `tests/fixtures/` with invented placeholder prose in place of third-party novel text. Cite both existing adapters as the two shapes: `metruyenhot` for HTML scraping with synthesized chapter refs, `khodocsach` for a JSON API with real listing pagination and a ticket handshake
+- [ ] 7.3 Bump version `1.1.0` → `2.0.0` (breaking: crate name, binary name, and public API all change)
+- [ ] 7.4 Rename the GitHub repository `kurokeita/truyenazz-crawler` → `kurokeita/novel-downloader` and update the local remote; GitHub redirects the old URL, so this is safe to do at any point but is grouped here so all outward-facing identity flips together
+- [ ] 7.5 Re-enable the `publish-homebrew` and `publish-winget` jobs disabled in 1.1, now pointing at the new formula and the new winget identifier
+- [ ] 7.6 Write the 2.0.0 release notes leading with the rename, giving the uninstall-then-reinstall command for both Homebrew and winget; a deleted formula and an abandoned winget identifier both fail silently, so nothing else will tell existing users
+- [ ] 7.7 Tag and release; confirm the assets, the new Homebrew formula and the new winget manifest all publish
+- [ ] 7.8 **Only after 2.0.0 has published**, delete `Formula/truyenazz-crawler.rb` from the `kurokeita/homebrew-brew` tap; add no `oldname` alias (clean break, per design.md). Deleting it earlier would strand 1.1.0 users with no replacement for the length of the overhaul
+- [ ] 7.9 Verify `brew install kurokeita/brew/novel-downloader` and `winget install Kurokeita.NovelDownloader` both work from a clean machine
