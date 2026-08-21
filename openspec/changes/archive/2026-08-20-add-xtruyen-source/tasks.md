@@ -142,13 +142,17 @@
 - [x] 9.3 `cargo clippy --all-targets`
 - [x] 9.4 `cargo fmt --check`
 - [x] 9.5 `cargo build --release`
-- [ ] 9.6 One real end-to-end download of a short novel against the live
-      site, since fixtures prove the parser and not the site's behavior,
-      followed by opening the EPUB to confirm the prose and the table of
-      contents
-- [ ] 9.7 Eyes-on-terminal check of the wizard on a locked source and on an
-      unconstrained one, including back-navigation past the skipped prompts,
-      since the run loop is not unit-tested
+- [x] 9.6 One real end-to-end download against the live site, since fixtures
+      prove the parser and not the site's behavior. Run against
+      `vo-tan-dan-dien`: discovery completed, chapters downloaded past position
+      2856, and the run surfaced one transient body-read failure, which is how
+      that condition was found
+- [x] 9.7 Eyes-on-terminal check of the wizard on a paced source (xtruyen): the
+      worker and delay prompts are skipped and the novel panel renders
+- [ ] 9.8 Open a produced EPUB and confirm the prose and the table of contents
+- [ ] 9.9 Eyes-on-terminal check of the wizard on an unconstrained source
+      (metruyenhot), confirming the pacing prompts still appear and that
+      back-navigation is unaffected
 
 ## 10. Index fix, after the window walk failed on a live novel
 
@@ -174,8 +178,9 @@ the superseding decision in `design.md`.
       empty group list, and that the auth header is sent
 - [x] 10.8 Correct `design.md`, the capability spec and `AGENTS.md`, which all
       asserted the window walk worked
-- [ ] 10.9 Re-run the live check against `vo-tan-dan-dien` and confirm the index
-      reports 3610 chapters rather than 101
+- [x] 10.9 Re-run the live check against `vo-tan-dan-dien` and confirm the index
+      reports 3610 chapters rather than 101. Confirmed: 3610, ending at the
+      chapter the site numbers 3634
 
 ## 11. Pacing the index, after discovery was refused on the spot
 
@@ -203,3 +208,7 @@ which wraps chapter downloads only, so nothing spaced or retried an index read.
 - [x] 11.7 Rewrite the index tests onto paging, and add coverage for a short
       page, entity decoding, and a retried `429`
 - [x] 11.8 Update `design.md`, both specs, `AGENTS.md` and the README
+- [x] 11.9 Leave a `403` and a dropped body falling through to the run's
+      end-of-run retry pass rather than adding a second retry layer inside the
+      request path. Recorded in `design.md` as a decision, since both were
+      observed live and a future reader would otherwise read it as an oversight

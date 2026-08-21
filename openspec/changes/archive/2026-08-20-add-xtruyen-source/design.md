@@ -192,6 +192,28 @@ limiter repeatedly and waits out each refusal finishes later than one paced at
 500ms throughout. The faster setting was worse for the user and for the host at
 the same time.
 
+## Decision: only rate limiting is retried mid-run; everything else falls through
+
+Two recoverable conditions were observed against live novels and are
+deliberately **not** given their own retry:
+
+- A `403` from the edge under sustained load, mapped to `ClientRejected`.
+- A body that stops arriving mid-stream. Responses are chunked with no
+  `Content-Length`, so a dropped connection surfaces as a decode error and is
+  mapped to `Other`. Observed once at roughly 200 KB per page over a
+  3610-chapter run.
+
+Both were argued for as a new "transient, retry me" variant handled beside
+`RateLimited`. That was rejected: the runner already collects per-chapter
+failures and offers a retry pass over them at the end of a run, and a chapter
+that failed was never written, so that pass refetches exactly the gaps. A second
+retry layer inside the request path would duplicate it, and would absorb the
+very failures the end-of-run list exists to show.
+
+So a refusal that is not a rate limit fails its chapter, the run continues, and
+the failures list carries it into the retry step. Anyone tempted to add the
+variant should read this as a choice rather than an oversight.
+
 ## Decision: `RateLimited` carries the wait the site asked for
 
 The `429` response includes `Retry-After: 10`, where the policy's first backoff
