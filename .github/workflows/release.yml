@@ -193,7 +193,12 @@ jobs:
   publish-winget:
     name: Publish to winget
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    # Frozen: winget-releaser can only bump an identifier that winget-pkgs
+    # already carries, and Kurokeita.NovelDownloader has never been submitted,
+    # so every tag fails this job. Restore the condition below once a first
+    # manifest has been accepted upstream.
+    #   if: startsWith(github.ref, 'refs/tags/')
+    if: false
     runs-on: windows-latest
     steps:
       - name: Submit manifest
