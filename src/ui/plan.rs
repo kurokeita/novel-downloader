@@ -106,6 +106,34 @@ pub struct SummaryParams<'a> {
     pub novel_title: Option<&'a str>,
     /// Book author that will be written to the EPUB, if known.
     pub novel_author: Option<&'a str>,
+    /// Whether the resolved source fixes the pacing, in which case `workers`
+    /// and `delay` are the source's values rather than the user's and the
+    /// summary says so.
+    pub pacing_fixed_by_source: bool,
+}
+
+/// Lines describing a novel's chapters on the discovery panel.
+///
+/// A source's sequence numbers are not always the numbers the site prints on
+/// its chapters: xtruyen numbers by index position, so a novel of 3610 chapters
+/// ends at a chapter the site calls 3634. Reporting the last sequence number as
+/// "latest chapter" therefore states something untrue. Where the index carries
+/// titles, the count and the site's own label for the last chapter are both
+/// reported instead. Where it does not, as for a source that learns titles only
+/// when a chapter is fetched, the sequence number is all there is to show.
+pub fn chapter_summary_lines(
+    count: usize,
+    last_number: Option<u32>,
+    latest_title: Option<&str>,
+) -> Vec<String> {
+    match (latest_title, last_number) {
+        (Some(title), _) if !title.trim().is_empty() => vec![
+            format!("Chapters: {count}"),
+            format!("Latest: {}", title.trim()),
+        ],
+        (_, Some(last)) => vec![format!("Latest chapter: {last}")],
+        (_, None) => Vec::new(),
+    }
 }
 
 /// Render the plan summary text shown before confirmation.
@@ -124,6 +152,7 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
         fast_skip,
         novel_title,
         novel_author,
+        pacing_fixed_by_source,
     } = params;
     let mode_label = match mode {
         CrawlMode::Crawl => "Crawl chapters",
@@ -165,8 +194,16 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
     // Always show the per-run knobs whenever a download stage is part of the
     // plan, so the user can verify their choices on one screen.
     if mode != CrawlMode::EpubOnly || has_chapter_range {
-        lines.push(format!("Workers: {}", workers));
-        lines.push(format!("Delay: {}s", delay));
+        // A source that paces itself has already overridden these two, so the
+        // summary names the reason rather than showing numbers the user never
+        // chose and cannot change.
+        let pacing_note = if pacing_fixed_by_source {
+            format!(" (required by {source})")
+        } else {
+            String::new()
+        };
+        lines.push(format!("Workers: {workers}{pacing_note}"));
+        lines.push(format!("Delay: {delay}s{pacing_note}"));
         lines.push(format!("If chapter exists: {}", if_exists_label));
         lines.push(format!(
             "Fast skip: {}",

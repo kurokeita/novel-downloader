@@ -3,9 +3,9 @@ use novel_downloader::crawler::CrawlStatus;
 use novel_downloader::crawler::ExistingFilePolicy;
 use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, epub_destination_dir,
-    expand_tilde, format_hms, gauge_label, longest_common_prefix, path_completions,
-    prompt_block_height,
+    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, chapter_summary_lines,
+    epub_destination_dir, expand_tilde, format_hms, gauge_label, longest_common_prefix,
+    path_completions, prompt_block_height,
 };
 use std::time::Duration;
 
@@ -626,6 +626,98 @@ fn path_input_ctrl_c_emits_quit() {
 }
 
 #[test]
+fn chapter_summary_reports_the_count_and_the_sites_own_label() {
+    assert_eq!(
+        chapter_summary_lines(3610, Some(3610), Some("Chương 3634 : Vĩnh hằng")),
+        vec![
+            "Chapters: 3610".to_string(),
+            "Latest: Chương 3634 : Vĩnh hằng".to_string()
+        ],
+        "3610 positions can end at a chapter the site calls 3634, so the count and \
+         the label are reported rather than the position"
+    );
+}
+
+#[test]
+fn chapter_summary_falls_back_to_the_sequence_number_without_a_title() {
+    assert_eq!(
+        chapter_summary_lines(218, Some(218), None),
+        vec!["Latest chapter: 218".to_string()],
+        "a source that learns titles only on fetch has nothing else to show"
+    );
+}
+
+#[test]
+fn chapter_summary_ignores_a_blank_title() {
+    assert_eq!(
+        chapter_summary_lines(5, Some(5), Some("   ")),
+        vec!["Latest chapter: 5".to_string()]
+    );
+}
+
+#[test]
+fn chapter_summary_is_empty_when_nothing_was_discovered() {
+    assert!(chapter_summary_lines(0, None, None).is_empty());
+}
+
+#[test]
+fn build_summary_names_the_source_when_it_fixes_the_pacing() {
+    let chapters: Vec<u32> = (1..=3).collect();
+    let output_root = std::path::PathBuf::from("/tmp/out");
+    let summary = build_summary(SummaryParams {
+        source: "xtruyen",
+        base_url: "https://xtruyen.vn/truyen/mot-truyen",
+        mode: CrawlMode::Crawl,
+        output_root: output_root.as_path(),
+        chapter_numbers: Some(chapters.as_slice()),
+        delay: 0.5,
+        workers: 2,
+        if_exists: ExistingFilePolicy::Skip,
+        chapter_dir: None,
+        font_path: None,
+        fast_skip: false,
+        novel_title: None,
+        novel_author: None,
+        pacing_fixed_by_source: true,
+    });
+    assert!(
+        summary.contains("Workers: 2 (required by xtruyen)"),
+        "the summary must say the worker count is the site's, got:\n{summary}"
+    );
+    assert!(
+        summary.contains("Delay: 0.5s (required by xtruyen)"),
+        "the summary must say the delay is the site's, got:\n{summary}"
+    );
+}
+
+#[test]
+fn build_summary_leaves_pacing_unannotated_for_an_unconstrained_source() {
+    let chapters: Vec<u32> = (1..=3).collect();
+    let output_root = std::path::PathBuf::from("/tmp/out");
+    let summary = build_summary(SummaryParams {
+        source: "metruyenhot",
+        base_url: "https://metruyenhotvn.com/foo",
+        mode: CrawlMode::Crawl,
+        output_root: output_root.as_path(),
+        chapter_numbers: Some(chapters.as_slice()),
+        delay: 0.0,
+        workers: 8,
+        if_exists: ExistingFilePolicy::Skip,
+        chapter_dir: None,
+        font_path: None,
+        fast_skip: false,
+        novel_title: None,
+        novel_author: None,
+        pacing_fixed_by_source: false,
+    });
+    assert!(summary.contains("Workers: 8\n"), "got:\n{summary}");
+    assert!(
+        !summary.contains("required by"),
+        "an unconstrained source must not claim to require anything, got:\n{summary}"
+    );
+}
+
+#[test]
 fn build_summary_includes_every_chosen_option_for_crawl_epub() {
     let chapters: Vec<u32> = (1..=50).collect();
     let output_root = std::path::PathBuf::from("/tmp/out");
@@ -644,6 +736,7 @@ fn build_summary_includes_every_chosen_option_for_crawl_epub() {
         fast_skip: true,
         novel_title: Some("Tên Truyện"),
         novel_author: Some("Tác Giả"),
+        pacing_fixed_by_source: false,
     });
     assert!(summary.contains("Base URL: https://metruyenhotvn.com/foo"));
     assert!(summary.contains("Title: Tên Truyện"));
@@ -700,6 +793,7 @@ fn build_summary_marks_fast_skip_no_when_disabled() {
         fast_skip: false,
         novel_title: None,
         novel_author: None,
+        pacing_fixed_by_source: false,
     });
     assert!(summary.contains("Fast skip: no"));
     assert!(summary.contains("Build EPUB: no"));
@@ -727,6 +821,7 @@ fn build_summary_names_the_epub_destination_for_build_only() {
         fast_skip: false,
         novel_title: Some("My Novel"),
         novel_author: None,
+        pacing_fixed_by_source: false,
     });
     assert!(
         summary.contains("EPUB output: /books/my-novel"),

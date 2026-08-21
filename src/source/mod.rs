@@ -13,6 +13,7 @@ use thiserror::Error;
 pub mod khodocsach;
 pub mod metruyenhot;
 pub mod registry;
+pub mod xtruyen;
 
 /// One chapter in a novel's index.
 ///
@@ -75,6 +76,28 @@ pub struct RatePolicy {
     pub backoff_base: Duration,
 }
 
+impl RatePolicy {
+    /// Whether this source fixes the run's pacing rather than leaving it to the
+    /// user. True when the source caps concurrency or requires a delay, which
+    /// is what lets the wizard skip prompts whose answers would be overridden.
+    /// Derived from the policy itself so no surface has to name a site.
+    pub fn fixes_pacing(&self) -> bool {
+        self.max_concurrency < usize::MAX || !self.min_delay.is_zero()
+    }
+
+    /// Worker count a run will actually use, given what the user asked for.
+    pub fn effective_workers(&self, requested: usize) -> usize {
+        requested.clamp(1, self.max_concurrency.max(1))
+    }
+
+    /// Inter-request delay in seconds a run will actually use, given what the
+    /// user asked for. The policy sets a floor, never a ceiling: a user who
+    /// wants to be gentler than the site demands is left alone.
+    pub fn effective_delay(&self, requested: f64) -> f64 {
+        requested.max(self.min_delay.as_secs_f64())
+    }
+}
+
 /// Failures a source reports in a form the pipeline can act on. Everything
 /// else stays an opaque [`anyhow::Error`] behind [`SourceError::Other`].
 #[derive(Debug, Error)]
@@ -87,6 +110,14 @@ pub enum SourceError {
         source_name: &'static str,
         /// Server-supplied detail, when there is any.
         message: String,
+        /// How long the site asked the client to wait, when it said so.
+        ///
+        /// A source that surfaces `Retry-After` fills this in and the pipeline
+        /// waits exactly that long, because the site's own number beats a
+        /// guess: xtruyen answers `Retry-After: 10` where the policy's growing
+        /// backoff would first try 2s and simply earn another refusal. `None`
+        /// means the site said nothing, so the policy's backoff applies.
+        retry_after: Option<Duration>,
     },
     /// The novel or chapter does not exist at the given address.
     #[error("not found: {0}")]
@@ -137,4 +168,67 @@ pub trait SiteAdapter: Send + Sync {
 
     /// Fetch and parse one chapter named by a ref this adapter produced.
     async fn fetch_chapter(&self, chapter: &ChapterRef) -> SourceResult<ChapterContent>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The policy both metruyenhot and khodocsach declare: no ceiling, no delay.
+    const UNCONSTRAINED: RatePolicy = RatePolicy {
+        max_concurrency: usize::MAX,
+        min_delay: Duration::ZERO,
+        max_retries: 2,
+        backoff_base: Duration::from_secs(2),
+    };
+
+    /// A policy shaped like xtruyen's: a real ceiling and a real delay.
+    const CONSTRAINED: RatePolicy = RatePolicy {
+        max_concurrency: 2,
+        min_delay: Duration::from_millis(500),
+        max_retries: 3,
+        backoff_base: Duration::from_secs(2),
+    };
+
+    #[test]
+    fn an_unconstrained_policy_leaves_pacing_to_the_user() {
+        assert!(!UNCONSTRAINED.fixes_pacing());
+    }
+
+    #[test]
+    fn a_concurrency_ceiling_fixes_the_pacing() {
+        let policy = RatePolicy {
+            max_concurrency: 4,
+            ..UNCONSTRAINED
+        };
+        assert!(policy.fixes_pacing());
+    }
+
+    #[test]
+    fn a_minimum_delay_fixes_the_pacing() {
+        let policy = RatePolicy {
+            min_delay: Duration::from_millis(1),
+            ..UNCONSTRAINED
+        };
+        assert!(policy.fixes_pacing());
+    }
+
+    #[test]
+    fn effective_workers_clamps_to_the_ceiling_but_never_below_one() {
+        assert_eq!(CONSTRAINED.effective_workers(8), 2);
+        assert_eq!(CONSTRAINED.effective_workers(1), 1);
+        assert_eq!(CONSTRAINED.effective_workers(0), 1);
+        assert_eq!(UNCONSTRAINED.effective_workers(8), 8);
+    }
+
+    #[test]
+    fn effective_delay_raises_to_the_floor_and_respects_a_slower_choice() {
+        assert_eq!(CONSTRAINED.effective_delay(0.0), 0.5);
+        assert_eq!(
+            CONSTRAINED.effective_delay(2.0),
+            2.0,
+            "a user asking to be gentler than the site demands is left alone"
+        );
+        assert_eq!(UNCONSTRAINED.effective_delay(0.0), 0.0);
+    }
 }

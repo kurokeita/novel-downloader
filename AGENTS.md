@@ -125,7 +125,71 @@ below list each submodule's role.
     have to return to if the rotation is ever removed. The reasoning
     lives in the `rate_policy` doc comment.
 
-  Both adapters derive their request base from the URL they are handed
+  - `xtruyen/` — an HTML adapter for a WordPress site on the Madara
+    theme, split into `parser.rs` (novel-slug extraction plus the URL
+    builders, which derive every address from the caller's origin so the
+    adapter runs against `mockito`), `metadata.rs` (novel-page
+    extractors, reading the title from `og:title` because the visible
+    heading is upper-cased in the markup, and the novel's internal id
+    from inline script state), `api.rs` (the chapter-group endpoint's
+    serde types and auth constants), `discovery.rs` (assembling the index
+    from the group list) and `payload.rs` (prose recovery). Three
+    decisions are worth knowing:
+    - **Chapter prose is not in the served DOM.** The reading container
+      is an empty spinner; the text ships in an inline script as
+      `data_x`, recovered by mapping its characters from a custom
+      64-symbol alphabet onto standard base64, decoding, then
+      zlib-inflating. Both alphabets are read out of the page, with the
+      compiled-in pair as a fallback, so a redeploy that shuffles them
+      does not need a new release to diagnose. A failed decode is a
+      chapter failure, never an empty chapter.
+    - **The index cannot be synthesized, and cannot be scraped off a
+      chapter page either.** Chapters live at `<novel>/chuong-<n>/`, which
+      invites metruyenhot's approach, but roughly 5% of the site's chapter
+      addresses carry a suffix past their number because they are
+      published as extensions of an earlier chapter (`chuong-1`,
+      `chuong-1-1` and `chuong-1-2` are three distinct chapters). The
+      `select.single-chapter-select` on a chapter page looks like an
+      enumerator and is not: it returns an arbitrary hundred-chapter slice
+      that need not contain the chapter being viewed, and it does not
+      advance as forward links are followed. An earlier implementation
+      walked it and truncated `vo-tan-dan-dien` to 101 chapters of 3611.
+      `fetch_index` instead pages `POST /api/api-chapters.php`, the
+      endpoint the site's own reader uses, by chapter *position*. Positions
+      are a contiguous `1..N` run, so the accordion of chapter groups is
+      never consulted. A requested width of 400 returns 400 entries and
+      401 returns 401, but 500 collapses to 201, so 400 is the page size;
+      past the end the endpoint answers `[]`, and the first short page
+      ends the paging. That is 10 requests for a 3610-chapter novel, and
+      the payload carries titles (with HTML entities inside the JSON, so
+      they go through `clean_text`), which is why `ChapterRef.title` comes
+      from the index. The endpoint needs the novel page as `Referer` and
+      the static `X-Custom-Auth` header in `api.rs`; a page it cannot
+      fetch aborts the whole index rather than truncating the novel.
+    - **Index reads pace and retry themselves.** `runner::Pacer` wraps
+      chapter downloads only, and an index is built before a run exists,
+      so `fetch_index` spaces its own pages by `policy.min_delay` and
+      retries a `429` through `post_form_retrying`. Discovery shipped once
+      without this and a 36-page burst was refused on the spot. Measured
+      for the 20-page worst case: 500ms spacing ran 20 for 20 clean while
+      250ms managed 19 before a refusal. 250ms shipped briefly on that
+      evidence and was reverted, because a download is thousands of
+      requests rather than twenty and the site refused them, making the
+      faster setting slower end to end. The remaining structural gap is
+      that pacing lives in two places; a shared pacer at the adapter seam
+      would fix the class.
+    - **`ChapterRef.number` is the index position**, not the number
+      parsed from the address, because a chapter and its extensions all
+      parse to the same number and that number names the output file.
+      Titles still come from each chapter's own page, so the EPUB shows
+      the site's labels even where file names are positional.
+
+    Its `RatePolicy` is the only constrained one in the crate
+    (`max_concurrency: 2`, 500ms `min_delay`): the site's edge buckets by
+    client address, so unlike khodocsach, rotating the `User-Agent` does
+    not widen it. The measurements are in the `rate_policy` doc comment.
+
+  Every adapter derives its request base from the URL it is handed
   rather than hard-coding a host, which is what makes them testable
   against `mockito` with no injected base URL.
 
@@ -372,8 +436,15 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   to a generic serif family.
 - **Chapter URL convention:** metruyenhot serves chapters at
   `<base>/chuong-<N>/`; khodocsach addresses them by opaque database id
-  through its API. Output files are named `chapter_NNNN.html`
-  (zero-padded) for both.
+  through its API; xtruyen serves them at `<base>/chuong-<N>/` too, but
+  some chapters carry a suffix past the number
+  (`<base>/chuong-<N>-<M>/`), so its addresses are read from the site
+  rather than built. Output files are named `chapter_NNNN.html`
+  (zero-padded) for all three, but the number they carry is not the same
+  thing on each: metruyenhot's is the chapter number, khodocsach's is the
+  site's own `index` (which has gaps), and xtruyen's is the chapter's
+  position in the walked index (which is gapless but can drift from the
+  number the site prints).
 - **khodocsach book URLs carry a `.kds` extension** (`/ten-truyen.kds/`)
   that the API slug does not; the bare form only 301-redirects to it.
   `book_slug_from_url` splits at the first dot for this reason.

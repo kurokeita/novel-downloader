@@ -133,6 +133,7 @@ fn describe_failure(error: &anyhow::Error, retries_spent: u32) -> String {
         Some(SourceError::RateLimited {
             source_name,
             message,
+            ..
         }) => format!(
             "rate limited by {source_name}, giving up after {retries_spent} retries: {message}"
         ),
@@ -158,13 +159,18 @@ async fn crawl_chapter_paced(
         match crawl_chapter(params.clone()).await {
             Ok(result) => return Ok(result),
             Err(error) => {
-                let rate_limited = matches!(
-                    error.downcast_ref::<SourceError>(),
-                    Some(SourceError::RateLimited { .. })
-                );
-                if rate_limited && retries < policy.max_retries {
+                let stated_wait = match error.downcast_ref::<SourceError>() {
+                    Some(SourceError::RateLimited { retry_after, .. }) => Some(*retry_after),
+                    _ => None,
+                };
+                if let Some(retry_after) = stated_wait
+                    && retries < policy.max_retries
+                {
                     retries += 1;
-                    pacer.back_off(policy.backoff_base * retries).await;
+                    // A site that names its own wait is obeyed; guessing shorter
+                    // just earns another refusal and spends a retry.
+                    let delay = retry_after.unwrap_or(policy.backoff_base * retries);
+                    pacer.back_off(delay).await;
                     continue;
                 }
                 return Err(describe_failure(&error, retries));

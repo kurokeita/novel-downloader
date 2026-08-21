@@ -10,7 +10,10 @@ use crate::ui::screens::{
 };
 use crate::ui::widgets::{Select, SelectOption, Validator, expand_tilde};
 
-use super::state::{FontChoice, StepResult, WizardState, WizardStep, step_after_mode};
+use super::state::{
+    FontChoice, StepResult, WizardState, WizardStep, step_after_end_chapter, step_after_mode,
+    step_before_if_exists,
+};
 
 macro_rules! advance_or_back {
     ($outcome:expr, $previous:expr, |$value:ident| $on_submit:block) => {
@@ -206,12 +209,20 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
         if let Some(title) = state.novel_title.as_ref() {
             lines.push(format!("Title: {}", title));
         }
+        if let Some(author) = state.novel_author.as_ref() {
+            lines.push(format!("Author: {}", author));
+        }
         if let Some(status) = state.novel_status.as_ref() {
             lines.push(format!("Status: {}", status));
         }
-        if let Some(last) = state.last_discovered {
-            lines.push(format!("Latest chapter: {}", last));
-        }
+        lines.extend(crate::ui::plan::chapter_summary_lines(
+            state.chapter_index.len(),
+            state.last_discovered,
+            state
+                .chapter_index
+                .last()
+                .and_then(|chapter| chapter.title.as_deref()),
+        ));
         if let Some(desc) = state.novel_description.as_ref() {
             lines.push(String::new());
             lines.push("Description:".to_string());
@@ -383,7 +394,17 @@ pub(super) fn step_end_chapter(state: &mut WizardState) -> Result<StepResult> {
             let _ = show_note("Invalid range", &message)?;
             return Ok(StepResult::Next(WizardStep::StartChapter));
         }
-        Ok(StepResult::Next(WizardStep::Workers))
+        // A source that paces itself overrides whatever the user would answer,
+        // so its own numbers are written in here and the two prompts skipped.
+        if let Some(policy) = state.rate_policy()
+            && policy.fixes_pacing()
+        {
+            state.workers = policy.effective_workers(state.workers);
+            state.delay = policy.effective_delay(state.delay);
+        }
+        Ok(StepResult::Next(step_after_end_chapter(
+            state.pacing_is_fixed(),
+        )))
     })
 }
 
@@ -456,10 +477,14 @@ pub(super) fn step_if_exists(state: &mut WizardState) -> Result<StepResult> {
         "Pick a behavior for existing chapter files.",
         Select::with_initial(allowed, &initial_policy),
     )?;
-    advance_or_back!(outcome, WizardStep::Delay, |value| {
-        state.if_exists = value;
-        Ok(StepResult::Next(WizardStep::FastSkip))
-    })
+    advance_or_back!(
+        outcome,
+        step_before_if_exists(state.pacing_is_fixed()),
+        |value| {
+            state.if_exists = value;
+            Ok(StepResult::Next(WizardStep::FastSkip))
+        }
+    )
 }
 
 /// Chapter directory prompt — only used in `EpubOnly` mode.
@@ -614,6 +639,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
         fast_skip: state.fast_skip,
         novel_title: state.novel_title.as_deref(),
         novel_author: state.novel_author.as_deref(),
+        pacing_fixed_by_source: state.pacing_is_fixed(),
     });
     let previous = match state.mode {
         CrawlMode::Crawl => WizardStep::FastSkip,

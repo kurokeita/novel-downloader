@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::cli::CliOptions;
 use crate::crawler::ExistingFilePolicy;
 use crate::recent_fonts::RecentFont;
-use crate::source::ChapterRef;
+use crate::source::{ChapterRef, RatePolicy, SiteAdapter};
 use crate::ui::plan::{CrawlMode, InteractivePlan};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +34,28 @@ pub(super) fn step_after_mode(mode: CrawlMode) -> WizardStep {
     match mode {
         CrawlMode::EpubOnly => WizardStep::ChapterDir,
         CrawlMode::Crawl | CrawlMode::CrawlEpub => WizardStep::OutputRoot,
+    }
+}
+
+/// Step that follows the end-chapter prompt. A source that fixes the pacing
+/// enforces its own worker count and delay whatever the user answers, so those
+/// two prompts are skipped rather than asked and overridden.
+pub(super) fn step_after_end_chapter(pacing_is_fixed: bool) -> WizardStep {
+    if pacing_is_fixed {
+        WizardStep::IfExists
+    } else {
+        WizardStep::Workers
+    }
+}
+
+/// Where back-navigation from the existing-file prompt lands. It has to mirror
+/// [`step_after_end_chapter`], or going back would land on a prompt that was
+/// never shown.
+pub(super) fn step_before_if_exists(pacing_is_fixed: bool) -> WizardStep {
+    if pacing_is_fixed {
+        WizardStep::EndChapter
+    } else {
+        WizardStep::Delay
     }
 }
 
@@ -88,6 +110,21 @@ pub(super) struct WizardState {
 }
 
 impl WizardState {
+    /// Rate policy of the source this run's URL resolves to, or `None` while
+    /// the URL is still unset or unsupported. Resolution is a host lookup with
+    /// no I/O, so this is read where it is needed rather than cached.
+    pub(super) fn rate_policy(&self) -> Option<RatePolicy> {
+        crate::source::registry::resolve(&self.base_url, self.allow_any_host)
+            .ok()
+            .map(SiteAdapter::rate_policy)
+    }
+
+    /// Whether the resolved source fixes this run's pacing.
+    pub(super) fn pacing_is_fixed(&self) -> bool {
+        self.rate_policy()
+            .is_some_and(|policy| policy.fixes_pacing())
+    }
+
     /// Build the initial state from CLI options, pre-filling every field
     /// with a sensible default so back-navigation never hits unset values.
     pub(super) fn seed(initial_base_url: Option<String>, options: &CliOptions) -> Self {
@@ -135,6 +172,22 @@ impl WizardState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn step_after_end_chapter_skips_the_pacing_prompts_for_a_rate_limited_source() {
+        assert_eq!(step_after_end_chapter(true), WizardStep::IfExists);
+    }
+
+    #[test]
+    fn step_after_end_chapter_keeps_the_pacing_prompts_for_an_unconstrained_source() {
+        assert_eq!(step_after_end_chapter(false), WizardStep::Workers);
+    }
+
+    #[test]
+    fn step_before_if_exists_mirrors_the_forward_route() {
+        assert_eq!(step_before_if_exists(true), WizardStep::EndChapter);
+        assert_eq!(step_before_if_exists(false), WizardStep::Delay);
+    }
 
     #[test]
     fn step_after_mode_skips_the_output_root_for_epub_only() {
