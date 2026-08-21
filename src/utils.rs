@@ -105,6 +105,22 @@ pub(crate) fn http_client(timeout: Duration, user_agent: Option<&str>) -> Result
         .context("failed to build HTTP client")
 }
 
+/// Read a `Retry-After` header as a wait duration.
+///
+/// Only the delta-seconds form is understood, which is the form every site this
+/// crate talks to uses. The HTTP-date form yields `None` rather than a guessed
+/// duration, leaving the caller's own backoff to apply.
+pub(crate) fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(Duration::from_secs)
+}
+
 /// Fetch `url` and return the response body as a string with the default 30s timeout.
 pub async fn fetch_html(url: &str) -> Result<String> {
     fetch_html_with_timeout(url, Duration::from_secs(30)).await

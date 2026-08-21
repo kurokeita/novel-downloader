@@ -7,6 +7,8 @@
 
 use serde::Deserialize;
 
+use crate::utils::clean_text;
+
 /// Path of the chapter-group endpoint, appended to the site origin.
 pub(super) const CHAPTERS_ENDPOINT: &str = "/api/api-chapters.php";
 
@@ -40,11 +42,17 @@ pub(super) struct ChapterEntry {
 impl ChapterEntry {
     /// Chapter title as it should reach the EPUB: the site's label, plus the
     /// chapter's own title when it has one.
+    ///
+    /// Both halves go through [`clean_text`] because the endpoint sends HTML
+    /// entities inside JSON strings (`Th&ocirc;n`), which would otherwise reach
+    /// the EPUB verbatim.
     pub(super) fn display_title(&self) -> String {
-        if self.title.trim().is_empty() {
-            self.label.trim().to_string()
+        let label = clean_text(&self.label);
+        let title = clean_text(&self.title);
+        if title.is_empty() {
+            label
         } else {
-            format!("{}: {}", self.label.trim(), self.title.trim())
+            format!("{label}: {title}")
         }
     }
 }
@@ -60,11 +68,11 @@ pub(super) fn group_form_body(manga_id: &str, from: &str, to: &str) -> String {
 mod tests {
     use super::*;
 
-    const GROUP_A: &str = include_str!("../../../tests/fixtures/xtruyen_chapters_group_a.json");
+    const PAGE: &str = include_str!("../../../tests/fixtures/xtruyen_chapters_page.json");
 
     #[test]
     fn chapter_entries_deserialize_from_the_wire_format() {
-        let entries: Vec<ChapterEntry> = serde_json::from_str(GROUP_A).unwrap();
+        let entries: Vec<ChapterEntry> = serde_json::from_str(PAGE).unwrap();
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].slug, "chuong-1");
         assert_eq!(entries[0].label, "Chương 1");
@@ -73,7 +81,7 @@ mod tests {
 
     #[test]
     fn display_title_joins_the_label_and_the_title() {
-        let entries: Vec<ChapterEntry> = serde_json::from_str(GROUP_A).unwrap();
+        let entries: Vec<ChapterEntry> = serde_json::from_str(PAGE).unwrap();
         assert_eq!(
             entries[0].display_title(),
             "Chương 1: Nhan đề thử nghiệm một"

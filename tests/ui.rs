@@ -3,9 +3,9 @@ use novel_downloader::crawler::CrawlStatus;
 use novel_downloader::crawler::ExistingFilePolicy;
 use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, epub_destination_dir,
-    expand_tilde, format_hms, gauge_label, longest_common_prefix, path_completions,
-    prompt_block_height,
+    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, chapter_summary_lines,
+    epub_destination_dir, expand_tilde, format_hms, gauge_label, longest_common_prefix,
+    path_completions, prompt_block_height,
 };
 use std::time::Duration;
 
@@ -623,6 +623,41 @@ fn path_input_ctrl_c_emits_quit() {
     let action = input.handle_key(event);
     assert_eq!(action, PathInputAction::Quit);
     assert_eq!(input.value(), "", "Ctrl+C must not insert 'c'");
+}
+
+#[test]
+fn chapter_summary_reports_the_count_and_the_sites_own_label() {
+    assert_eq!(
+        chapter_summary_lines(3610, Some(3610), Some("Chương 3634 : Vĩnh hằng")),
+        vec![
+            "Chapters: 3610".to_string(),
+            "Latest: Chương 3634 : Vĩnh hằng".to_string()
+        ],
+        "3610 positions can end at a chapter the site calls 3634, so the count and \
+         the label are reported rather than the position"
+    );
+}
+
+#[test]
+fn chapter_summary_falls_back_to_the_sequence_number_without_a_title() {
+    assert_eq!(
+        chapter_summary_lines(218, Some(218), None),
+        vec!["Latest chapter: 218".to_string()],
+        "a source that learns titles only on fetch has nothing else to show"
+    );
+}
+
+#[test]
+fn chapter_summary_ignores_a_blank_title() {
+    assert_eq!(
+        chapter_summary_lines(5, Some(5), Some("   ")),
+        vec!["Latest chapter: 5".to_string()]
+    );
+}
+
+#[test]
+fn chapter_summary_is_empty_when_nothing_was_discovered() {
+    assert!(chapter_summary_lines(0, None, None).is_empty());
 }
 
 #[test]

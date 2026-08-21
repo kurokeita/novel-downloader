@@ -110,6 +110,14 @@ pub enum SourceError {
         source_name: &'static str,
         /// Server-supplied detail, when there is any.
         message: String,
+        /// How long the site asked the client to wait, when it said so.
+        ///
+        /// A source that surfaces `Retry-After` fills this in and the pipeline
+        /// waits exactly that long, because the site's own number beats a
+        /// guess: xtruyen answers `Retry-After: 10` where the policy's growing
+        /// backoff would first try 2s and simply earn another refusal. `None`
+        /// means the site said nothing, so the policy's backoff applies.
+        retry_after: Option<Duration>,
     },
     /// The novel or chapter does not exist at the given address.
     #[error("not found: {0}")]

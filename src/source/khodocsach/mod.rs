@@ -60,6 +60,9 @@ struct ApiFailure {
     status: u16,
     code: String,
     message: String,
+    /// Wait the server asked for, when it sent one. Only a refusal carries
+    /// this; a transport or schema failure has no headers to read.
+    retry_after: Option<Duration>,
 }
 
 impl ApiFailure {
@@ -70,6 +73,7 @@ impl ApiFailure {
             status: 0,
             code: "transport".to_string(),
             message,
+            retry_after: None,
         }
     }
 
@@ -82,6 +86,7 @@ impl ApiFailure {
             status: 0,
             code: "malformed response".to_string(),
             message,
+            retry_after: None,
         }
     }
 
@@ -102,11 +107,13 @@ impl From<ApiFailure> for SourceError {
             status,
             code,
             message,
+            retry_after,
         } = failure;
         match status {
             429 => Self::RateLimited {
                 source_name: ID,
                 message,
+                retry_after,
             },
             403 => Self::ClientRejected(message),
             404 => Self::NotFound(message),
@@ -131,6 +138,7 @@ async fn get_json<T: DeserializeOwned>(url: &str, ua: Option<&str>) -> Result<T,
         .map_err(|e| ApiFailure::transport(format!("failed to fetch {url}: {e}")))?;
 
     let status = response.status();
+    let retry_after = crate::utils::retry_after(response.headers());
     let body = response
         .text()
         .await
@@ -147,6 +155,7 @@ async fn get_json<T: DeserializeOwned>(url: &str, ua: Option<&str>) -> Result<T,
                 || format!("HTTP {} from {url}", status.as_u16()),
                 |e| e.message,
             ),
+            retry_after,
         });
     }
 

@@ -175,4 +175,31 @@ the superseding decision in `design.md`.
 - [x] 10.8 Correct `design.md`, the capability spec and `AGENTS.md`, which all
       asserted the window walk worked
 - [ ] 10.9 Re-run the live check against `vo-tan-dan-dien` and confirm the index
-      reports 3611 chapters rather than 101
+      reports 3610 chapters rather than 101
+
+## 11. Pacing the index, after discovery was refused on the spot
+
+The group-based index from section 10 fired 36 requests in a tight loop and the
+live host answered `429` on the first run. Pacing lives in `runner::Pacer`,
+which wraps chapter downloads only, so nothing spaced or retried an index read.
+
+- [x] 11.1 Page `POST /api/api-chapters.php` by chapter position, 400 at a time,
+      stopping at the first short page. Positions are contiguous, so the group
+      listing and `parse_group_bounds` are deleted along with their fixture
+- [x] 11.2 Space index pages by the policy's `min_delay` and retry a `429`
+      through a `post_form_retrying` helper
+- [x] 11.3 Widen `SourceError::RateLimited` with `retry_after: Option<Duration>`
+      and add `utils::retry_after` to read the header, so a site that states its
+      own wait is obeyed rather than guessed at
+- [x] 11.4 Have `runner::crawl_chapter_paced` prefer a stated wait over its
+      computed backoff, and khodocsach populate the field from the same header,
+      so the download path benefits too
+- [x] 11.5 Decode HTML entities in index-supplied titles, which the live
+      endpoint sends inside its JSON strings
+- [x] 11.6 Set `min_delay` to 500ms. 250ms shipped first, on the index
+      measurement alone, and was reverted once the download phase drew refusals:
+      a run that trips the limiter and waits out each refusal finishes later
+      than one paced at 500ms throughout
+- [x] 11.7 Rewrite the index tests onto paging, and add coverage for a short
+      page, entity decoding, and a retried `429`
+- [x] 11.8 Update `design.md`, both specs, `AGENTS.md` and the README

@@ -112,6 +112,30 @@ pub struct SummaryParams<'a> {
     pub pacing_fixed_by_source: bool,
 }
 
+/// Lines describing a novel's chapters on the discovery panel.
+///
+/// A source's sequence numbers are not always the numbers the site prints on
+/// its chapters: xtruyen numbers by index position, so a novel of 3610 chapters
+/// ends at a chapter the site calls 3634. Reporting the last sequence number as
+/// "latest chapter" therefore states something untrue. Where the index carries
+/// titles, the count and the site's own label for the last chapter are both
+/// reported instead. Where it does not, as for a source that learns titles only
+/// when a chapter is fetched, the sequence number is all there is to show.
+pub fn chapter_summary_lines(
+    count: usize,
+    last_number: Option<u32>,
+    latest_title: Option<&str>,
+) -> Vec<String> {
+    match (latest_title, last_number) {
+        (Some(title), _) if !title.trim().is_empty() => vec![
+            format!("Chapters: {count}"),
+            format!("Latest: {}", title.trim()),
+        ],
+        (_, Some(last)) => vec![format!("Latest chapter: {last}")],
+        (_, None) => Vec::new(),
+    }
+}
+
 /// Render the plan summary text shown before confirmation.
 pub fn build_summary(params: SummaryParams<'_>) -> String {
     let SummaryParams {

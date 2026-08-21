@@ -154,15 +154,30 @@ below list each submodule's role.
       that need not contain the chapter being viewed, and it does not
       advance as forward links are followed. An earlier implementation
       walked it and truncated `vo-tan-dan-dien` to 101 chapters of 3611.
-      `fetch_index` instead reads the list the site's own reader uses:
-      `POST <novel>/ajax/chapters/` returns chapter groups whose
-      `data-value` is a position range (the last ending in `m`), and
-      `POST /api/api-chapters.php` turns one range into that group's
-      chapters as JSON. Roughly 36 requests for a 3600-chapter novel, and
-      the payload carries titles, so `ChapterRef.title` comes from the
-      index. The endpoint needs the novel page as `Referer` and the static
-      `X-Custom-Auth` header in `api.rs`; a group it cannot fetch aborts
-      the whole index rather than truncating the novel.
+      `fetch_index` instead pages `POST /api/api-chapters.php`, the
+      endpoint the site's own reader uses, by chapter *position*. Positions
+      are a contiguous `1..N` run, so the accordion of chapter groups is
+      never consulted. A requested width of 400 returns 400 entries and
+      401 returns 401, but 500 collapses to 201, so 400 is the page size;
+      past the end the endpoint answers `[]`, and the first short page
+      ends the paging. That is 10 requests for a 3610-chapter novel, and
+      the payload carries titles (with HTML entities inside the JSON, so
+      they go through `clean_text`), which is why `ChapterRef.title` comes
+      from the index. The endpoint needs the novel page as `Referer` and
+      the static `X-Custom-Auth` header in `api.rs`; a page it cannot
+      fetch aborts the whole index rather than truncating the novel.
+    - **Index reads pace and retry themselves.** `runner::Pacer` wraps
+      chapter downloads only, and an index is built before a run exists,
+      so `fetch_index` spaces its own pages by `policy.min_delay` and
+      retries a `429` through `post_form_retrying`. Discovery shipped once
+      without this and a 36-page burst was refused on the spot. Measured
+      for the 20-page worst case: 500ms spacing ran 20 for 20 clean while
+      250ms managed 19 before a refusal. 250ms shipped briefly on that
+      evidence and was reverted, because a download is thousands of
+      requests rather than twenty and the site refused them, making the
+      faster setting slower end to end. The remaining structural gap is
+      that pacing lives in two places; a shared pacer at the adapter seam
+      would fix the class.
     - **`ChapterRef.number` is the index position**, not the number
       parsed from the address, because a chapter and its extensions all
       parse to the same number and that number names the output file.

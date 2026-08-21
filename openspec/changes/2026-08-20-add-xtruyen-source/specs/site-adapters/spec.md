@@ -40,6 +40,28 @@ advance.
 - **THEN** the run uses exactly those values
 - **AND** no override message is shown
 
+### Requirement: A wait the site states is honored over a computed backoff
+
+When a site refuses a request for exceeding its rate limit and states how long
+the client should wait, the pipeline SHALL wait at least that long before
+retrying, in preference to any interval it would otherwise compute.
+
+Retrying sooner than the site asked earns a second refusal and consumes a retry
+for nothing, so a stated wait SHALL be carried from the source that observed it
+to whatever code performs the wait. Where a site states nothing, the source's
+own backoff applies unchanged.
+
+#### Scenario: A stated wait is obeyed
+
+- **WHEN** a source reports a rate-limit refusal that carries the wait the site
+  asked for
+- **THEN** the retry happens no earlier than that wait allows
+
+#### Scenario: No stated wait leaves existing backoff untouched
+
+- **WHEN** a source reports a rate-limit refusal without a stated wait
+- **THEN** the pipeline backs off by its own growing interval as before
+
 ### Requirement: A source may not be given a rate policy it cannot justify
 
 A source's declared rate policy SHALL be accompanied, in the source itself, by

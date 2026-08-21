@@ -222,3 +222,16 @@ invalidate the numbers.
 
 - **WHEN** the user requests more concurrent workers than the source declares
 - **THEN** the run uses the source's maximum
+
+#### Scenario: Building the index is paced like any other work
+
+- **WHEN** a novel long enough to need many index requests is resolved
+- **THEN** those requests are spaced by the source's declared minimum delay
+- **AND** the run is not refused for reading its own index too quickly
+
+#### Scenario: A refusal while indexing is waited out, not fatal
+
+- **WHEN** the site refuses an index request for exceeding its rate limit and
+  states how long the client should wait
+- **THEN** the source waits at least that long and retries
+- **AND** the index completes without the user restarting the run

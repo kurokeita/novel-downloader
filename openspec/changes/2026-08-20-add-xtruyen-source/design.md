@@ -61,21 +61,25 @@ claim below that the select "carries the complete slug list of the window that
 chapter belongs to" was generalized from one volume-less novel and does not hold
 site-wide.
 
-What does work is the list the site's own reader uses:
+What does work is the endpoint the site's own reader uses:
 
 1. The novel page states the novel's internal id.
-2. `POST /truyen/<slug>/ajax/chapters/` returns the accordion of chapter groups.
-   Each carries a `data-value` position range (`1-to-176`, `177-to-276`, and so
-   on, the last ending in `m`). No authentication.
-3. `POST /api/api-chapters.php` with `manga_id`, `from`, `to` and an empty `vol`
-   returns that group's chapters as JSON: `{"s": slug, "n": label, "e": title}`.
-   It requires the novel page as `Referer` (else `403`) and a static
-   `X-Custom-Auth` header (else `401`).
+2. `POST /api/api-chapters.php` with `manga_id`, `from`, `to` and an empty `vol`
+   returns those chapter *positions* as JSON: `{"s": slug, "n": label,
+   "e": title}`. It requires the novel page as `Referer` (else `403`) and a
+   static `X-Custom-Auth` header (else `401`).
 
-Concatenating the groups gives the exact index, including extension chapters,
-in 36 requests for a 3611-chapter novel rather than one request per chapter. It
-also carries titles, so `ChapterRef.title` is populated from the index and no
+Positions are a contiguous `1..N` run, so paging them directly is enough and
+the novel's own chapter-group accordion is not consulted at all. Measured page
+behavior: a requested width of 400 returns 400 entries and 401 returns 401, but
+500 collapses to 201, so the server honors a few hundred and silently clamps
+beyond that. Past the end it answers `[]`. Paging 400 at a time and stopping at
+the first short page indexes a 3610-chapter novel in **10 requests**, and the
+payload carries titles, so `ChapterRef.title` comes from the index and no
 chapter page is fetched to learn one.
+
+Titles arrive with HTML entities inside the JSON strings (`Th&ocirc;n`), so both
+halves of a chapter's title go through `clean_text`.
 
 The auth token is a constant baked into the site's obfuscated scripts. It
 appears in neither the page source nor any script the page loads, so there is
@@ -160,6 +164,45 @@ Consequences, all accepted:
 from the chapter page on fetch, as metruyenhot already does, so the EPUB
 table of contents shows the site's own label (for example `Chương 1 1:
 ...`) even where the file name is positional.
+
+## Decision: pace and retry index reads inside the adapter
+
+Discovery first shipped unpaced and a user hit `429` immediately: 36 index calls
+went out in a tight loop at roughly 10/s. The cause is that `RatePolicy` is
+enforced by `runner::Pacer`, which wraps chapter *downloads* only. An index is
+built before a run exists, so nothing spaced or retried those calls. khodocsach
+pages a listing in `fetch_novel` too and was only ever safe because its policy
+constrains nothing.
+
+Two layers could own this. Threading a shared pacer through the adapter seam
+would prevent the whole class by construction, but it reshapes the seam and
+touches khodocsach's paging as well. Pacing inside the adapter's own index loop
+is contained to one function, and the adapter already holds its policy. This
+change takes the second and records the first as the remaining structural gap:
+`min_delay` between pages, and a retry that honors the refusal.
+
+Measured for a 20-page novel, which is the 8000-chapter case: 20 calls at 500ms
+spacing ran 20 for 20 clean, while 250ms managed 19 before one `429`.
+
+The policy uses **500ms**. It briefly used 250ms on the strength of that index
+measurement, reasoning that one cheap refusal per twenty calls was worth the
+speed. That reasoning does not survive the download phase, which is thousands of
+requests rather than twenty: the site refused them, and a run that trips the
+limiter repeatedly and waits out each refusal finishes later than one paced at
+500ms throughout. The faster setting was worse for the user and for the host at
+the same time.
+
+## Decision: `RateLimited` carries the wait the site asked for
+
+The `429` response includes `Retry-After: 10`, where the policy's first backoff
+step is 2s. Retrying too early just earns a second refusal and spends a retry
+for nothing, so the server's own number has to reach the code that waits.
+
+`SourceError::RateLimited` therefore gains `retry_after: Option<Duration>`.
+Both the adapter's index retry and `runner::crawl_chapter_paced` prefer it and
+fall back to the policy's growing backoff when it is absent. khodocsach fills it
+in from the same header, so the benefit is not confined to the source that
+prompted it. `None` keeps the previous behavior exactly.
 
 ## Decision: rate policy numbers, and where they come from
 

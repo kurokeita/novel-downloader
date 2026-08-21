@@ -25,9 +25,10 @@ scraper does. Interrupting a run costs nothing on any host: re-run the same
 command and already-saved chapters are skipped.
 
 `xtruyen.vn` enforces a request limit per client address, so its adapter sets
-the pace: at most 2 concurrent requests with half a second between them. That is
-applied whatever `--workers` and `--delay` say, and the run tells you when it
-overrides either. The interactive wizard does not ask for those two values for
+the pace: at most 2 concurrent requests with half a second between them, and
+a refusal is retried after however long the site says to wait. That is applied
+whatever `--workers` and `--delay` say, and the run tells you when it overrides
+either. The interactive wizard does not ask for those two values for
 this host at all, since the answers would be discarded, and the confirmation
 screen shows the pacing the run will actually use. Expect roughly two minutes
 for a 200-chapter novel. Chapter numbering follows the site's own reading order

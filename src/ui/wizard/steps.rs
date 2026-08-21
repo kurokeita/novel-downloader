@@ -209,12 +209,20 @@ pub(super) async fn step_discover(state: &mut WizardState) -> Result<StepResult>
         if let Some(title) = state.novel_title.as_ref() {
             lines.push(format!("Title: {}", title));
         }
+        if let Some(author) = state.novel_author.as_ref() {
+            lines.push(format!("Author: {}", author));
+        }
         if let Some(status) = state.novel_status.as_ref() {
             lines.push(format!("Status: {}", status));
         }
-        if let Some(last) = state.last_discovered {
-            lines.push(format!("Latest chapter: {}", last));
-        }
+        lines.extend(crate::ui::plan::chapter_summary_lines(
+            state.chapter_index.len(),
+            state.last_discovered,
+            state
+                .chapter_index
+                .last()
+                .and_then(|chapter| chapter.title.as_deref()),
+        ));
         if let Some(desc) = state.novel_description.as_ref() {
             lines.push(String::new());
             lines.push("Description:".to_string());

@@ -9,6 +9,7 @@ use novel_downloader::source::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// Chapter refs pointing at the mock origin server's chapters. Built as
 /// literals rather than derived from a base URL, since the runner is not
@@ -355,6 +356,8 @@ struct FakeSource {
     peak_in_flight: AtomicUsize,
     /// The first N attempts return `RateLimited` before any succeed.
     rate_limit_first: usize,
+    /// Wait those refusals state, standing in for a `Retry-After` header.
+    retry_after: Option<Duration>,
     /// Chapters that always answer `Unentitled`.
     unentitled: Vec<u32>,
 }
@@ -368,6 +371,7 @@ impl FakeSource {
             in_flight: AtomicUsize::new(0),
             peak_in_flight: AtomicUsize::new(0),
             rate_limit_first: 0,
+            retry_after: None,
             unentitled: Vec::new(),
         }
     }
@@ -424,6 +428,7 @@ impl novel_downloader::source::SiteAdapter for FakeSource {
             return Err(SourceError::RateLimited {
                 source_name: "fake",
                 message: "slow down".to_string(),
+                retry_after: self.retry_after,
             });
         }
         Ok(ChapterContent {

@@ -17,7 +17,10 @@ mod screens;
 mod widgets;
 mod wizard;
 
-pub use plan::{CrawlMode, InteractivePlan, SummaryParams, build_summary, epub_destination_dir};
+pub use plan::{
+    CrawlMode, InteractivePlan, SummaryParams, build_summary, chapter_summary_lines,
+    epub_destination_dir,
+};
 pub use screens::{
     prompt_block_height, run_confirm, run_download_screen, run_loading_screen, run_path_prompt,
     run_select, run_text_prompt, show_note,

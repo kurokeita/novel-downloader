@@ -784,9 +784,7 @@ async fn khodocsach_reads_a_book_whose_author_term_is_an_empty_string() {
 
 const XTRUYEN_NOVEL_HTML: &str = include_str!("fixtures/xtruyen_novel.html");
 const XTRUYEN_CHAPTER_HTML: &str = include_str!("fixtures/xtruyen_chapter.html");
-const XTRUYEN_GROUPS_HTML: &str = include_str!("fixtures/xtruyen_chapter_groups.html");
-const XTRUYEN_GROUP_A_JSON: &str = include_str!("fixtures/xtruyen_chapters_group_a.json");
-const XTRUYEN_GROUP_B_JSON: &str = include_str!("fixtures/xtruyen_chapters_group_b.json");
+const XTRUYEN_PAGE_JSON: &str = include_str!("fixtures/xtruyen_chapters_page.json");
 
 /// Novel-page URL on the mock server. The adapter takes its origin from this
 /// URL and rebases every link the site publishes onto it, which is what makes
@@ -885,44 +883,41 @@ fn xtruyen_rate_policy_reflects_the_measured_per_address_limit() {
     assert_eq!(
         policy.min_delay,
         std::time::Duration::from_millis(500),
-        "two requests per second ran clean, four did not"
+        "two requests per second ran clean over a long run, four did not"
     );
     assert!(policy.max_retries >= 1);
     assert!(policy.backoff_base >= std::time::Duration::from_secs(1));
 }
 
-/// Mount the group listing and both groups' chapters, the two hops the index
-/// is assembled from.
-async fn mount_xtruyen_index(
-    server: &mut mockito::Server,
-) -> (mockito::Mock, mockito::Mock, mockito::Mock) {
-    let groups = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body(XTRUYEN_GROUPS_HTML)
-        .create_async()
-        .await;
-    let group_a = server
+/// Mount one page of the chapter index. The fixture holds fewer entries than a
+/// full page, so the adapter stops after this single call.
+async fn mount_xtruyen_index(server: &mut mockito::Server) -> mockito::Mock {
+    server
         .mock("POST", "/api/api-chapters.php")
-        .match_body(mockito::Matcher::Regex("from=1&to=2".to_string()))
+        .match_body(mockito::Matcher::Regex("from=1&to=400".to_string()))
         .with_header("content-type", "application/json")
-        .with_body(XTRUYEN_GROUP_A_JSON)
+        .with_body(XTRUYEN_PAGE_JSON)
         .create_async()
-        .await;
-    let group_b = server
-        .mock("POST", "/api/api-chapters.php")
-        .match_body(mockito::Matcher::Regex("from=3&to=3m".to_string()))
-        .with_header("content-type", "application/json")
-        .with_body(XTRUYEN_GROUP_B_JSON)
-        .create_async()
-        .await;
-    (groups, group_a, group_b)
+        .await
+}
+
+/// A body of `count` synthetic entries starting at `first`, so a full page can
+/// be served without a four-hundred-entry fixture on disk.
+fn xtruyen_page_of(first: usize, count: usize) -> String {
+    let entries: Vec<String> = (0..count)
+        .map(|offset| {
+            let n = first + offset;
+            format!(r#"{{"s":"chuong-{n}","n":"Chương {n}","e":"Nhan đề {n}"}}"#)
+        })
+        .collect();
+    format!("[{}]", entries.join(","))
 }
 
 #[tokio::test]
-async fn xtruyen_fetch_novel_reads_metadata_and_every_group() {
+async fn xtruyen_fetch_novel_reads_metadata_and_the_whole_index() {
     let mut server = mockito::Server::new_async().await;
     let novel_page = mount_xtruyen_novel(&mut server).await;
-    let (groups, group_a, group_b) = mount_xtruyen_index(&mut server).await;
+    let index = mount_xtruyen_index(&mut server).await;
 
     let novel = Xtruyen
         .fetch_novel(&xtruyen_novel_url(&server))
@@ -938,18 +933,47 @@ async fn xtruyen_fetch_novel_reads_metadata_and_every_group() {
     );
     assert_eq!(
         novel.chapters.iter().map(|c| c.number).collect::<Vec<_>>(),
-        vec![1, 2, 3, 4],
-        "both groups are concatenated in reading order"
+        vec![1, 2]
     );
     assert_eq!(
-        novel.chapters[3].locator,
-        format!("{}/truyen/truyen-thu-nghiem/chuong-3/", server.url()),
+        novel.chapters[0].locator,
+        format!("{}/truyen/truyen-thu-nghiem/chuong-1/", server.url()),
         "locators are built on the caller's origin"
     );
     novel_page.assert_async().await;
-    groups.assert_async().await;
-    group_a.assert_async().await;
-    group_b.assert_async().await;
+    index.assert_async().await;
+}
+
+#[tokio::test]
+async fn xtruyen_fetch_novel_keeps_paging_until_a_short_page() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let first = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=1&to=400".to_string()))
+        .with_body(xtruyen_page_of(1, 400))
+        .create_async()
+        .await;
+    let second = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=401&to=800".to_string()))
+        .with_body(xtruyen_page_of(401, 7))
+        .create_async()
+        .await;
+
+    let novel = Xtruyen
+        .fetch_novel(&xtruyen_novel_url(&server))
+        .await
+        .expect("a novel spanning two pages must index in full");
+
+    assert_eq!(
+        novel.chapters.len(),
+        407,
+        "a full page must be followed by the next one, and a short page ends it"
+    );
+    assert_eq!(novel.chapters[400].number, 401, "numbering runs unbroken");
+    first.assert_async().await;
+    second.assert_async().await;
 }
 
 #[tokio::test]
@@ -970,13 +994,13 @@ async fn xtruyen_fetch_novel_indexes_extension_chapters_as_their_own_chapters() 
         .collect();
     assert_eq!(
         slugs,
-        vec!["chuong-1", "chuong-1-1", "chuong-2", "chuong-3"],
+        vec!["chuong-1", "chuong-1-1"],
         "the extension sits directly after the chapter it extends"
     );
     assert_eq!(
         novel.chapters.iter().map(|c| c.number).collect::<Vec<_>>(),
-        vec![1, 2, 3, 4],
-        "chuong-1 and chuong-1-1 both parse to 1, so numbering comes from position"
+        vec![1, 2],
+        "both parse to the number 1, so numbering comes from position"
     );
 }
 
@@ -1003,23 +1027,40 @@ async fn xtruyen_fetch_novel_takes_chapter_titles_from_the_index() {
 }
 
 #[tokio::test]
+async fn xtruyen_fetch_novel_decodes_entities_in_index_titles() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _index = server
+        .mock("POST", "/api/api-chapters.php")
+        .with_body(r#"[{"s":"chuong-1","n":"Chương 1","e":"Th&ocirc;n ph&ecirc;"}]"#)
+        .create_async()
+        .await;
+
+    let novel = Xtruyen
+        .fetch_novel(&xtruyen_novel_url(&server))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        novel.chapters[0].title.as_deref(),
+        Some("Chương 1: Thôn phê"),
+        "the live endpoint sends HTML entities in titles, which must not reach the EPUB raw"
+    );
+}
+
+#[tokio::test]
 async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
     let mut server = mockito::Server::new_async().await;
     let _novel_page = mount_xtruyen_novel(&mut server).await;
-    let _groups = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body(XTRUYEN_GROUPS_HTML)
-        .create_async()
-        .await;
     let _first = server
         .mock("POST", "/api/api-chapters.php")
-        .match_body(mockito::Matcher::Regex("from=1&to=2".to_string()))
-        .with_body(XTRUYEN_GROUP_A_JSON)
+        .match_body(mockito::Matcher::Regex("from=1&to=400".to_string()))
+        .with_body(xtruyen_page_of(1, 400))
         .create_async()
         .await;
     let _broken = server
         .mock("POST", "/api/api-chapters.php")
-        .match_body(mockito::Matcher::Regex("from=3&to=3m".to_string()))
+        .match_body(mockito::Matcher::Regex("from=401&to=800".to_string()))
         .with_status(500)
         .create_async()
         .await;
@@ -1027,7 +1068,7 @@ async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
     let error = Xtruyen
         .fetch_novel(&xtruyen_novel_url(&server))
         .await
-        .expect_err("one unreadable group must fail the index, not truncate it");
+        .expect_err("one unreadable page must fail the index, not truncate it");
     assert!(
         !matches!(error, SourceError::NotFound(_)),
         "a server error is not a missing novel: {error}"
@@ -1038,11 +1079,6 @@ async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
 async fn xtruyen_fetch_novel_fails_when_the_endpoint_refuses_the_client() {
     let mut server = mockito::Server::new_async().await;
     let _novel_page = mount_xtruyen_novel(&mut server).await;
-    let _groups = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body(XTRUYEN_GROUPS_HTML)
-        .create_async()
-        .await;
     let _refused = server
         .mock("POST", "/api/api-chapters.php")
         .with_status(401)
@@ -1060,12 +1096,39 @@ async fn xtruyen_fetch_novel_fails_when_the_endpoint_refuses_the_client() {
 }
 
 #[tokio::test]
-async fn xtruyen_fetch_novel_fails_when_no_groups_are_listed() {
+async fn xtruyen_retries_a_rate_limited_index_page_and_honors_the_stated_wait() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let refused = server
+        .mock("POST", "/api/api-chapters.php")
+        .with_status(429)
+        .with_header("retry-after", "0")
+        .expect(1)
+        .create_async()
+        .await;
+    let served = server
+        .mock("POST", "/api/api-chapters.php")
+        .with_body(XTRUYEN_PAGE_JSON)
+        .create_async()
+        .await;
+
+    let novel = Xtruyen
+        .fetch_novel(&xtruyen_novel_url(&server))
+        .await
+        .expect("a rate-limited index page must be retried, not fatal");
+
+    assert_eq!(novel.chapters.len(), 2);
+    refused.assert_async().await;
+    served.assert_async().await;
+}
+
+#[tokio::test]
+async fn xtruyen_fetch_novel_fails_when_the_index_is_empty() {
     let mut server = mockito::Server::new_async().await;
     let _novel_page = mount_xtruyen_novel(&mut server).await;
     let _empty = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body("<div class=\"listing-chapters_wrap\"></div>")
+        .mock("POST", "/api/api-chapters.php")
+        .with_body("[]")
         .create_async()
         .await;
 
@@ -1074,7 +1137,7 @@ async fn xtruyen_fetch_novel_fails_when_no_groups_are_listed() {
             .fetch_novel(&xtruyen_novel_url(&server))
             .await
             .is_err(),
-        "an empty group list is a failure, not an empty novel"
+        "an empty index is a failure, not an empty novel"
     );
 }
 
@@ -1082,16 +1145,11 @@ async fn xtruyen_fetch_novel_fails_when_no_groups_are_listed() {
 async fn xtruyen_index_requests_carry_the_endpoints_auth_header() {
     let mut server = mockito::Server::new_async().await;
     let _novel_page = mount_xtruyen_novel(&mut server).await;
-    let _groups = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body(XTRUYEN_GROUPS_HTML)
-        .create_async()
-        .await;
     let authed = server
         .mock("POST", "/api/api-chapters.php")
         .match_header("x-custom-auth", mockito::Matcher::Any)
         .match_header("referer", mockito::Matcher::Any)
-        .with_body(XTRUYEN_GROUP_A_JSON)
+        .with_body(XTRUYEN_PAGE_JSON)
         .expect_at_least(1)
         .create_async()
         .await;
@@ -1105,15 +1163,9 @@ async fn xtruyen_index_requests_carry_the_endpoints_auth_header() {
 async fn xtruyen_fetch_metadata_does_not_read_the_chapter_index() {
     let mut server = mockito::Server::new_async().await;
     let novel_page = mount_xtruyen_novel(&mut server).await;
-    let groups = server
-        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
-        .with_body(XTRUYEN_GROUPS_HTML)
-        .expect(0)
-        .create_async()
-        .await;
-    let api = server
+    let index = server
         .mock("POST", "/api/api-chapters.php")
-        .with_body(XTRUYEN_GROUP_A_JSON)
+        .with_body(XTRUYEN_PAGE_JSON)
         .expect(0)
         .create_async()
         .await;
@@ -1129,8 +1181,7 @@ async fn xtruyen_fetch_metadata_does_not_read_the_chapter_index() {
         "fetch_metadata must not read the index"
     );
     novel_page.assert_async().await;
-    groups.assert_async().await;
-    api.assert_async().await;
+    index.assert_async().await;
 }
 
 #[tokio::test]

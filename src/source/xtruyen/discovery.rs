@@ -6,10 +6,9 @@
 //! either: the chapter select there returns an arbitrary hundred-chapter slice
 //! that need not contain the chapter being viewed, so it enumerates nothing.
 //!
-//! The index therefore comes from the site's own chapter list. The novel page
-//! publishes an accordion of groups whose `data-value` holds position bounds,
-//! and [`api`] turns one such pair into that group's chapters. A novel of 3600
-//! chapters costs 36 requests.
+//! The index instead comes from the endpoint the site's own reader uses, paged
+//! by chapter position. Positions are a contiguous `1..N` run, so the novel's
+//! own chapter groups are not needed to drive the paging.
 
 use std::collections::HashSet;
 
@@ -17,19 +16,23 @@ use anyhow::anyhow;
 use once_cell::sync::Lazy;
 use scraper::{Html, Selector};
 
-use crate::source::{ChapterRef, SourceError, SourceResult};
+use crate::source::{ChapterRef, RatePolicy, SourceError, SourceResult};
 use crate::utils::clean_text;
 
 use super::{api, parser};
 
-/// Path of the endpoint listing a novel's chapter groups, relative to the
-/// novel page. It needs no authentication, unlike the group contents.
-const GROUPS_PATH: &str = "ajax/chapters/";
+/// Chapter positions requested per call.
+///
+/// Measured against the live endpoint on 2026-08-21: a width of 400 returns 400
+/// entries and 401 returns 401, but 500 collapses to 201, so the server honors
+/// a few hundred and silently clamps beyond that. 400 sits inside the honored
+/// range with margin.
+const PAGE_SIZE: usize = 400;
 
-/// One collapsed chapter group. Its `data-value` is the position range the
-/// group covers, which is the key [`api`] wants.
-static GROUP_ITEM: Lazy<Selector> =
-    Lazy::new(|| Selector::parse("li.has-child[data-value]").unwrap());
+/// Upper bound on pages read, so a site that never returns a short page cannot
+/// spin forever. At [`PAGE_SIZE`] per page this allows 200,000 chapters, far
+/// beyond anything the site publishes.
+const MAX_PAGES: usize = 500;
 
 /// The chapter's own label, as shown above the prose.
 static CHAPTER_LABEL: Lazy<Selector> = Lazy::new(|| Selector::parse(".entry-header h2").unwrap());
@@ -37,19 +40,6 @@ static CHAPTER_LABEL: Lazy<Selector> = Lazy::new(|| Selector::parse(".entry-head
 /// Fallback label, carried by the reader's floating player.
 static MINI_LABEL: Lazy<Selector> =
     Lazy::new(|| Selector::parse("#tts-mini-chapter-title").unwrap());
-
-/// Read every chapter group's position bounds, in reading order. A value that
-/// is not a range is skipped rather than guessed at.
-pub(super) fn parse_group_bounds(groups_html: &str) -> Vec<(String, String)> {
-    let document = Html::parse_document(groups_html);
-    document
-        .select(&GROUP_ITEM)
-        .filter_map(|item| item.value().attr("data-value"))
-        .filter_map(|value| value.split_once("-to-"))
-        .filter(|(from, to)| !from.is_empty() && !to.is_empty())
-        .map(|(from, to)| (from.to_string(), to.to_string()))
-        .collect()
-}
 
 /// Read this chapter's own label, preferring the heading above the prose and
 /// falling back to the reader's floating player. Only used when the index did
@@ -69,21 +59,21 @@ pub(super) fn parse_chapter_title(page_html: &str) -> Option<String> {
         })
 }
 
-/// Read the whole chapter index: the group list, then each group's chapters.
+/// Read the whole chapter index, one page of positions at a time.
 ///
-/// A group that cannot be retrieved fails the whole index rather than
-/// truncating it, because a short index is indistinguishable from a short novel
-/// and would silently produce an incomplete book.
-pub(super) async fn fetch_index(novel_url: &str, manga_id: &str) -> SourceResult<Vec<ChapterRef>> {
-    let groups_url = parser::join_path(novel_url, GROUPS_PATH)?;
-    let groups_html = super::post_form(&groups_url, "", novel_url).await?;
-    let bounds = parse_group_bounds(&groups_html);
-    if bounds.is_empty() {
-        return Err(SourceError::Other(anyhow!(
-            "no chapter groups listed for {novel_url}"
-        )));
-    }
-
+/// Paging stops at the first page shorter than [`PAGE_SIZE`], which the
+/// endpoint returns for the tail; past the end it answers an empty list, so a
+/// novel whose length is an exact multiple of the page size costs one extra
+/// call rather than looping.
+///
+/// A page that cannot be retrieved fails the whole index rather than truncating
+/// it, because a short index is indistinguishable from a short novel and would
+/// silently produce an incomplete book.
+pub(super) async fn fetch_index(
+    novel_url: &str,
+    manga_id: &str,
+    policy: RatePolicy,
+) -> SourceResult<Vec<ChapterRef>> {
     let endpoint = format!(
         "{}{}",
         parser::origin_of(novel_url)?,
@@ -91,16 +81,23 @@ pub(super) async fn fetch_index(novel_url: &str, manga_id: &str) -> SourceResult
     );
     let mut chapters: Vec<ChapterRef> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
+    let mut from = 1usize;
 
-    for (from, to) in bounds {
-        let body = api::group_form_body(manga_id, &from, &to);
-        let json = super::post_form(&endpoint, &body, novel_url).await?;
+    for page in 0..MAX_PAGES {
+        if page > 0 {
+            tokio::time::sleep(policy.min_delay).await;
+        }
+
+        let to = from + PAGE_SIZE - 1;
+        let body = api::group_form_body(manga_id, &from.to_string(), &to.to_string());
+        let json = super::post_form_retrying(&endpoint, &body, novel_url, policy).await?;
         let entries: Vec<api::ChapterEntry> = serde_json::from_str(&json).map_err(|e| {
             SourceError::Other(anyhow!(
-                "unexpected chapter group payload for {from}-to-{to}: {e}"
+                "unexpected chapter payload for positions {from}-{to}: {e}"
             ))
         })?;
 
+        let received = entries.len();
         for entry in entries {
             let locator = parser::chapter_url(novel_url, &entry.slug)?;
             if seen.insert(locator.clone()) {
@@ -111,6 +108,11 @@ pub(super) async fn fetch_index(novel_url: &str, manga_id: &str) -> SourceResult
                 });
             }
         }
+
+        if received < PAGE_SIZE {
+            break;
+        }
+        from += PAGE_SIZE;
     }
 
     if chapters.is_empty() {
@@ -125,32 +127,7 @@ pub(super) async fn fetch_index(novel_url: &str, manga_id: &str) -> SourceResult
 mod tests {
     use super::*;
 
-    const GROUPS_HTML: &str = include_str!("../../../tests/fixtures/xtruyen_chapter_groups.html");
     const CHAPTER_HTML: &str = include_str!("../../../tests/fixtures/xtruyen_chapter.html");
-
-    #[test]
-    fn parse_group_bounds_reads_every_group_in_order() {
-        assert_eq!(
-            parse_group_bounds(GROUPS_HTML),
-            vec![
-                ("1".to_string(), "2".to_string()),
-                ("3".to_string(), "3m".to_string()),
-            ],
-            "bounds are positions, and the final group's upper bound keeps its suffix"
-        );
-    }
-
-    #[test]
-    fn parse_group_bounds_returns_empty_when_no_groups_are_listed() {
-        assert!(parse_group_bounds("<div></div>").is_empty());
-    }
-
-    #[test]
-    fn parse_group_bounds_ignores_a_value_that_is_not_a_range() {
-        assert!(
-            parse_group_bounds(r#"<li class="has-child" data-value="rubbish"></li>"#).is_empty()
-        );
-    }
 
     #[test]
     fn parse_chapter_title_reads_the_label() {

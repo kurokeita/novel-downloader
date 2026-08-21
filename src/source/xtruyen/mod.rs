@@ -18,7 +18,7 @@ use scraper::{Html, Selector};
 use crate::source::{
     ChapterContent, ChapterRef, Novel, RatePolicy, SiteAdapter, SourceError, SourceResult,
 };
-use crate::utils::{clean_text, http_client};
+use crate::utils::{self, clean_text, http_client};
 
 mod api;
 mod discovery;
@@ -61,10 +61,12 @@ async fn fetch_page(url: &str) -> SourceResult<String> {
 
     let status = response.status();
     if !status.is_success() {
+        let retry_after = utils::retry_after(response.headers());
         return Err(match status.as_u16() {
             429 => SourceError::RateLimited {
                 source_name: ID,
                 message: format!("HTTP 429 from {url}"),
+                retry_after,
             },
             403 => SourceError::ClientRejected(format!("HTTP 403 from {url}")),
             404 => SourceError::NotFound(url.to_string()),
@@ -103,10 +105,12 @@ async fn post_form(url: &str, body: &str, referer: &str) -> SourceResult<String>
 
     let status = response.status();
     if !status.is_success() {
+        let retry_after = utils::retry_after(response.headers());
         return Err(match status.as_u16() {
             429 => SourceError::RateLimited {
                 source_name: ID,
                 message: format!("HTTP 429 from {url}"),
+                retry_after,
             },
             401 | 403 => SourceError::ClientRejected(format!(
                 "HTTP {} from {url}: the chapter index endpoint refused this client",
@@ -121,6 +125,34 @@ async fn post_form(url: &str, body: &str, referer: &str) -> SourceResult<String>
         .text()
         .await
         .map_err(|e| SourceError::Other(anyhow!("failed to read body from {url}: {e}")))
+}
+
+/// [`post_form`], retrying while the site answers `429` and the policy still
+/// has retries left.
+///
+/// Index reads need their own retry because the runner's is wrapped around
+/// chapter downloads only, and the index is built before a run exists. A
+/// refusal that survives every retry is returned, never swallowed: a short
+/// index would look exactly like a short novel.
+async fn post_form_retrying(
+    url: &str,
+    body: &str,
+    referer: &str,
+    policy: RatePolicy,
+) -> SourceResult<String> {
+    let mut retries: u32 = 0;
+    loop {
+        match post_form(url, body, referer).await {
+            Err(SourceError::RateLimited { retry_after, .. }) if retries < policy.max_retries => {
+                retries += 1;
+                // The endpoint states its own wait (`Retry-After: 10`), which
+                // beats the policy's first backoff step of 2s.
+                let wait = retry_after.unwrap_or(policy.backoff_base * retries);
+                tokio::time::sleep(wait).await;
+            }
+            other => return other,
+        }
+    }
 }
 
 /// Read the novel's title off a chapter page, for the output directory name.
@@ -172,9 +204,15 @@ impl SiteAdapter for Xtruyen {
     /// The site's edge buckets by client address, so no header will widen it and
     /// these numbers are a real ceiling rather than a starting point.
     ///
-    /// What would invalidate them is a change in how that edge buckets clients.
-    /// Retest the same way: a fixed-rate sequential run at 2 and at 4 requests
-    /// per second, then a small parallel burst.
+    /// The 500ms spacing is what those numbers support. A run briefly used
+    /// 250ms, on the strength of the index endpoint tolerating 19 of 20 calls
+    /// at that rate, but the download phase is thousands of requests rather
+    /// than twenty and the site answered refusals for them, so the faster
+    /// setting was both slower end to end and harder on the host.
+    ///
+    /// What would invalidate these numbers is a change in how that edge buckets
+    /// clients. Retest the same way: a fixed-rate sequential run at 2 and at 4
+    /// requests per second, then a small parallel burst.
     fn rate_policy(&self) -> RatePolicy {
         RatePolicy {
             max_concurrency: 2,
@@ -192,7 +230,7 @@ impl SiteAdapter for Xtruyen {
                 "novel page states no id, so its chapters cannot be listed"
             ))
         })?;
-        let chapters = discovery::fetch_index(url, manga_id).await?;
+        let chapters = discovery::fetch_index(url, manga_id, self.rate_policy()).await?;
 
         Ok(Novel {
             title: page.title,
