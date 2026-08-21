@@ -1,6 +1,6 @@
 [package]
 name = "novel-downloader"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 description = "Rust crawler and EPUB builder for Vietnamese web novel sites"
 license = "GPL-3.0-or-later"
