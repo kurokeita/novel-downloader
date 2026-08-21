@@ -149,3 +149,30 @@
 - [ ] 9.7 Eyes-on-terminal check of the wizard on a locked source and on an
       unconstrained one, including back-navigation past the skipped prompts,
       since the run loop is not unit-tested
+
+## 10. Index fix, after the window walk failed on a live novel
+
+Added after section 9 shipped. The walk truncated `vo-tan-dan-dien` to 101
+chapters of 3611, because the chapter-select window is not an enumerator. See
+the superseding decision in `design.md`.
+
+- [x] 10.1 Record fixtures for the two new hops: the group listing returned by
+      `POST <novel>/ajax/chapters/`, and two group payloads from
+      `POST /api/api-chapters.php`, with invented chapter titles
+- [x] 10.2 Add `api.rs` with the serde type for the group payload, the form body
+      builder, and the endpoint's auth constants, documenting where the token
+      came from and how it fails
+- [x] 10.3 Add `manga_id` to the novel-page extractors, dropping the first and
+      latest chapter links the walk needed
+- [x] 10.4 Add failing inline tests for `parse_group_bounds`, then implement it
+- [x] 10.5 Replace `walk_index` with `fetch_index`, deleting `parse_window` and
+      `parse_next_href` rather than leaving them unused
+- [x] 10.6 Add `post_form` to the adapter, mapping `401`/`403` to a rejected
+      client so a rotated token cannot look like a short novel
+- [x] 10.7 Rewrite the integration tests onto the two hops: ordering, positional
+      numbering, index-supplied titles, a failed group, a refused request, an
+      empty group list, and that the auth header is sent
+- [x] 10.8 Correct `design.md`, the capability spec and `AGENTS.md`, which all
+      asserted the window walk worked
+- [ ] 10.9 Re-run the live check against `vo-tan-dan-dien` and confirm the index
+      reports 3611 chapters rather than 101

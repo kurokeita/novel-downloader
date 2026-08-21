@@ -30,26 +30,33 @@ pub(super) fn novel_slug_from_url(url: &str) -> Result<String> {
     }
 }
 
-/// Rebuild `href` against the origin of `base`, keeping only its path.
-///
-/// The site writes its own absolute URLs into every link, so a run against a
-/// mock server or a mirror would otherwise walk straight back to production.
-/// Taking the path and keeping the caller's origin is what makes the adapter
-/// testable without an injected base URL.
-pub(super) fn rebase_onto(base: &str, href: &str) -> Result<String> {
-    let base_url = Url::parse(base).with_context(|| format!("invalid base URL: {base}"))?;
-    if base_url.host_str().is_none() {
-        return Err(anyhow!("base URL has no host: {base}"));
+/// Origin of `url`, for building the site-wide endpoints that hang off it.
+/// Deriving this from the caller's URL rather than hard-coding a host is what
+/// lets the whole adapter run against a mock server.
+pub(super) fn origin_of(url: &str) -> Result<String> {
+    let parsed = Url::parse(url).with_context(|| format!("invalid URL: {url}"))?;
+    let origin = parsed.origin().ascii_serialization();
+    if origin == "null" {
+        return Err(anyhow!("URL has no host: {url}"));
     }
-    let target = base_url
-        .join(href)
-        .with_context(|| format!("invalid link {href} on {base}"))?;
+    Ok(origin)
+}
 
-    let mut rebased = base_url;
-    rebased.set_path(target.path());
-    rebased.set_query(None);
-    rebased.set_fragment(None);
-    Ok(rebased.to_string())
+/// Append `path` to a novel URL, tolerating a novel URL with or without its
+/// trailing slash.
+pub(super) fn join_path(novel_url: &str, path: &str) -> Result<String> {
+    let trimmed = novel_url.trim_end_matches('/');
+    origin_of(trimmed)?;
+    Ok(format!("{trimmed}/{path}"))
+}
+
+/// Address of one chapter, from the novel URL and the slug the index supplied.
+pub(super) fn chapter_url(novel_url: &str, slug: &str) -> Result<String> {
+    let slug = slug.trim().trim_matches('/');
+    if slug.is_empty() {
+        return Err(anyhow!("chapter index carried an empty address"));
+    }
+    join_path(novel_url, &format!("{slug}/"))
 }
 
 #[cfg(test)]
@@ -99,43 +106,50 @@ mod tests {
     }
 
     #[test]
-    fn rebase_onto_moves_a_production_href_to_the_callers_origin() {
+    fn origin_of_keeps_a_non_default_port() {
         assert_eq!(
-            rebase_onto(
-                "http://127.0.0.1:1234/truyen/truyen-thu-nghiem/",
-                "https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-2/"
-            )
-            .unwrap(),
-            "http://127.0.0.1:1234/truyen/truyen-thu-nghiem/chuong-2/"
+            origin_of("http://127.0.0.1:1234/truyen/a/").unwrap(),
+            "http://127.0.0.1:1234"
         );
     }
 
     #[test]
-    fn rebase_onto_resolves_a_relative_href() {
+    fn origin_of_errors_on_a_url_without_a_host() {
+        assert!(origin_of("not-a-url").is_err());
+    }
+
+    #[test]
+    fn join_path_appends_with_or_without_a_trailing_slash() {
+        for base in [
+            "https://xtruyen.vn/truyen/a",
+            "https://xtruyen.vn/truyen/a/",
+        ] {
+            assert_eq!(
+                join_path(base, "ajax/chapters/").unwrap(),
+                "https://xtruyen.vn/truyen/a/ajax/chapters/"
+            );
+        }
+    }
+
+    #[test]
+    fn chapter_url_builds_a_chapter_address_from_a_slug() {
         assert_eq!(
-            rebase_onto(
-                "https://xtruyen.vn/truyen/truyen-thu-nghiem/",
-                "/truyen/truyen-thu-nghiem/chuong-2/"
-            )
-            .unwrap(),
-            "https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-2/"
+            chapter_url("https://xtruyen.vn/truyen/a/", "chuong-1-1").unwrap(),
+            "https://xtruyen.vn/truyen/a/chuong-1-1/",
+            "an extension chapter's address survives untouched"
         );
     }
 
     #[test]
-    fn rebase_onto_keeps_the_callers_port() {
+    fn chapter_url_keeps_the_callers_origin() {
         assert_eq!(
-            rebase_onto(
-                "http://localhost:8765/truyen/a/",
-                "https://xtruyen.vn/truyen/a/chuong-9/"
-            )
-            .unwrap(),
-            "http://localhost:8765/truyen/a/chuong-9/"
+            chapter_url("http://127.0.0.1:1234/truyen/a", "chuong-9").unwrap(),
+            "http://127.0.0.1:1234/truyen/a/chuong-9/"
         );
     }
 
     #[test]
-    fn rebase_onto_errors_on_a_base_without_a_host() {
-        assert!(rebase_onto("not-a-url", "/truyen/a/chuong-1/").is_err());
+    fn chapter_url_rejects_an_empty_slug() {
+        assert!(chapter_url("https://xtruyen.vn/truyen/a/", "  ").is_err());
     }
 }

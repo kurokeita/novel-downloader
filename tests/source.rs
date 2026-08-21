@@ -784,7 +784,9 @@ async fn khodocsach_reads_a_book_whose_author_term_is_an_empty_string() {
 
 const XTRUYEN_NOVEL_HTML: &str = include_str!("fixtures/xtruyen_novel.html");
 const XTRUYEN_CHAPTER_HTML: &str = include_str!("fixtures/xtruyen_chapter.html");
-const XTRUYEN_SUFFIXED_HTML: &str = include_str!("fixtures/xtruyen_chapter_suffixed.html");
+const XTRUYEN_GROUPS_HTML: &str = include_str!("fixtures/xtruyen_chapter_groups.html");
+const XTRUYEN_GROUP_A_JSON: &str = include_str!("fixtures/xtruyen_chapters_group_a.json");
+const XTRUYEN_GROUP_B_JSON: &str = include_str!("fixtures/xtruyen_chapters_group_b.json");
 
 /// Novel-page URL on the mock server. The adapter takes its origin from this
 /// URL and rebases every link the site publishes onto it, which is what makes
@@ -889,15 +891,38 @@ fn xtruyen_rate_policy_reflects_the_measured_per_address_limit() {
     assert!(policy.backoff_base >= std::time::Duration::from_secs(1));
 }
 
-#[tokio::test]
-async fn xtruyen_fetch_novel_reads_metadata_and_the_whole_window() {
-    let mut server = mockito::Server::new_async().await;
-    let novel_page = mount_xtruyen_novel(&mut server).await;
-    let window = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-1/")
-        .with_body(XTRUYEN_CHAPTER_HTML)
+/// Mount the group listing and both groups' chapters, the two hops the index
+/// is assembled from.
+async fn mount_xtruyen_index(
+    server: &mut mockito::Server,
+) -> (mockito::Mock, mockito::Mock, mockito::Mock) {
+    let groups = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body(XTRUYEN_GROUPS_HTML)
         .create_async()
         .await;
+    let group_a = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=1&to=2".to_string()))
+        .with_header("content-type", "application/json")
+        .with_body(XTRUYEN_GROUP_A_JSON)
+        .create_async()
+        .await;
+    let group_b = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=3&to=3m".to_string()))
+        .with_header("content-type", "application/json")
+        .with_body(XTRUYEN_GROUP_B_JSON)
+        .create_async()
+        .await;
+    (groups, group_a, group_b)
+}
+
+#[tokio::test]
+async fn xtruyen_fetch_novel_reads_metadata_and_every_group() {
+    let mut server = mockito::Server::new_async().await;
+    let novel_page = mount_xtruyen_novel(&mut server).await;
+    let (groups, group_a, group_b) = mount_xtruyen_index(&mut server).await;
 
     let novel = Xtruyen
         .fetch_novel(&xtruyen_novel_url(&server))
@@ -913,93 +938,28 @@ async fn xtruyen_fetch_novel_reads_metadata_and_the_whole_window() {
     );
     assert_eq!(
         novel.chapters.iter().map(|c| c.number).collect::<Vec<_>>(),
-        vec![1, 2, 3]
+        vec![1, 2, 3, 4],
+        "both groups are concatenated in reading order"
     );
     assert_eq!(
-        novel.chapters[2].locator,
+        novel.chapters[3].locator,
         format!("{}/truyen/truyen-thu-nghiem/chuong-3/", server.url()),
-        "locators must be rebased onto the caller's origin"
+        "locators are built on the caller's origin"
     );
     novel_page.assert_async().await;
-    window.assert_async().await;
-}
-
-#[tokio::test]
-async fn xtruyen_fetch_novel_walks_past_the_end_of_a_window() {
-    let mut server = mockito::Server::new_async().await;
-    let novel_page = server
-        .mock("GET", "/truyen/truyen-thu-nghiem")
-        .with_body(XTRUYEN_NOVEL_HTML.replace("chuong-3/", "chuong-5/"))
-        .create_async()
-        .await;
-    let first_window = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-1/")
-        .with_body(xtruyen_window_page(
-            "Chương 1",
-            &["chuong-1", "chuong-2", "chuong-3"],
-            Some("chuong-4"),
-        ))
-        .create_async()
-        .await;
-    let window_tail = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-3/")
-        .with_body(xtruyen_window_page(
-            "Chương 3",
-            &["chuong-1", "chuong-2", "chuong-3"],
-            Some("chuong-4"),
-        ))
-        .create_async()
-        .await;
-    let second_window = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-4/")
-        .with_body(xtruyen_window_page(
-            "Chương 4",
-            &["chuong-4", "chuong-5"],
-            None,
-        ))
-        .create_async()
-        .await;
-
-    let novel = Xtruyen
-        .fetch_novel(&xtruyen_novel_url(&server))
-        .await
-        .expect("a novel spanning two windows must index in full");
-
-    assert_eq!(
-        novel
-            .chapters
-            .iter()
-            .map(|c| c.locator.rsplit('/').nth(1).unwrap().to_string())
-            .collect::<Vec<_>>(),
-        vec!["chuong-1", "chuong-2", "chuong-3", "chuong-4", "chuong-5"],
-        "the walk must cross the window boundary by following the forward link"
-    );
-    novel_page.assert_async().await;
-    first_window.assert_async().await;
-    window_tail.assert_async().await;
-    second_window.assert_async().await;
+    groups.assert_async().await;
+    group_a.assert_async().await;
+    group_b.assert_async().await;
 }
 
 #[tokio::test]
 async fn xtruyen_fetch_novel_indexes_extension_chapters_as_their_own_chapters() {
     let mut server = mockito::Server::new_async().await;
-    let _novel_page = server
-        .mock("GET", "/truyen/truyen-mo-rong")
-        .with_body(
-            XTRUYEN_NOVEL_HTML
-                .replace("truyen-thu-nghiem", "truyen-mo-rong")
-                .replace("chuong-3/", "chuong-2/"),
-        )
-        .create_async()
-        .await;
-    let _window = server
-        .mock("GET", "/truyen/truyen-mo-rong/chuong-1/")
-        .with_body(XTRUYEN_SUFFIXED_HTML)
-        .create_async()
-        .await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _index = mount_xtruyen_index(&mut server).await;
 
     let novel = Xtruyen
-        .fetch_novel(&format!("{}/truyen/truyen-mo-rong", server.url()))
+        .fetch_novel(&xtruyen_novel_url(&server))
         .await
         .expect("a novel with extension chapters must resolve");
 
@@ -1010,13 +970,35 @@ async fn xtruyen_fetch_novel_indexes_extension_chapters_as_their_own_chapters() 
         .collect();
     assert_eq!(
         slugs,
-        vec!["chuong-1", "chuong-1-1", "chuong-1-2", "chuong-2"],
-        "each extension belongs directly after the chapter it extends"
+        vec!["chuong-1", "chuong-1-1", "chuong-2", "chuong-3"],
+        "the extension sits directly after the chapter it extends"
     );
     assert_eq!(
         novel.chapters.iter().map(|c| c.number).collect::<Vec<_>>(),
         vec![1, 2, 3, 4],
-        "three chapters parse to the number 1, so numbering must come from position"
+        "chuong-1 and chuong-1-1 both parse to 1, so numbering comes from position"
+    );
+}
+
+#[tokio::test]
+async fn xtruyen_fetch_novel_takes_chapter_titles_from_the_index() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _index = mount_xtruyen_index(&mut server).await;
+
+    let novel = Xtruyen
+        .fetch_novel(&xtruyen_novel_url(&server))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        novel.chapters[0].title.as_deref(),
+        Some("Chương 1: Nhan đề thử nghiệm một"),
+        "the index carries titles, so no chapter page is needed to learn them"
+    );
+    assert_eq!(
+        novel.chapters[1].title.as_deref(),
+        Some("Chương 1 1: Nhan đề mở rộng")
     );
 }
 
@@ -1024,8 +1006,20 @@ async fn xtruyen_fetch_novel_indexes_extension_chapters_as_their_own_chapters() 
 async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
     let mut server = mockito::Server::new_async().await;
     let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _groups = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body(XTRUYEN_GROUPS_HTML)
+        .create_async()
+        .await;
+    let _first = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=1&to=2".to_string()))
+        .with_body(XTRUYEN_GROUP_A_JSON)
+        .create_async()
+        .await;
     let _broken = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-1/")
+        .mock("POST", "/api/api-chapters.php")
+        .match_body(mockito::Matcher::Regex("from=3&to=3m".to_string()))
         .with_status(500)
         .create_async()
         .await;
@@ -1033,7 +1027,7 @@ async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
     let error = Xtruyen
         .fetch_novel(&xtruyen_novel_url(&server))
         .await
-        .expect_err("an unreadable page must fail the index, not truncate it");
+        .expect_err("one unreadable group must fail the index, not truncate it");
     assert!(
         !matches!(error, SourceError::NotFound(_)),
         "a server error is not a missing novel: {error}"
@@ -1041,50 +1035,85 @@ async fn xtruyen_fetch_novel_fails_rather_than_returning_a_short_index() {
 }
 
 #[tokio::test]
-async fn xtruyen_fetch_novel_stops_when_a_window_repeats_itself() {
+async fn xtruyen_fetch_novel_fails_when_the_endpoint_refuses_the_client() {
     let mut server = mockito::Server::new_async().await;
-    let _novel_page = server
-        .mock("GET", "/truyen/truyen-thu-nghiem")
-        .with_body(XTRUYEN_NOVEL_HTML.replace("chuong-3/", "chuong-99/"))
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _groups = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body(XTRUYEN_GROUPS_HTML)
         .create_async()
         .await;
-    let _window = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-1/")
-        .with_body(xtruyen_window_page(
-            "Chương 1",
-            &["chuong-1", "chuong-2"],
-            Some("chuong-1"),
-        ))
-        .create_async()
-        .await;
-    let _tail = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-2/")
-        .with_body(xtruyen_window_page(
-            "Chương 2",
-            &["chuong-1", "chuong-2"],
-            Some("chuong-1"),
-        ))
+    let _refused = server
+        .mock("POST", "/api/api-chapters.php")
+        .with_status(401)
         .create_async()
         .await;
 
-    let novel = Xtruyen
+    let error = Xtruyen
         .fetch_novel(&xtruyen_novel_url(&server))
         .await
-        .expect("a self-referential forward link must terminate, not spin");
-    assert_eq!(
-        novel.chapters.len(),
-        2,
-        "a link back into a window already read must end the walk"
+        .expect_err("a refused index request must surface, not pass silently");
+    assert!(
+        matches!(error, SourceError::ClientRejected(_)),
+        "a rotated auth token should read as a rejected client, got {error}"
     );
+}
+
+#[tokio::test]
+async fn xtruyen_fetch_novel_fails_when_no_groups_are_listed() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _empty = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body("<div class=\"listing-chapters_wrap\"></div>")
+        .create_async()
+        .await;
+
+    assert!(
+        Xtruyen
+            .fetch_novel(&xtruyen_novel_url(&server))
+            .await
+            .is_err(),
+        "an empty group list is a failure, not an empty novel"
+    );
+}
+
+#[tokio::test]
+async fn xtruyen_index_requests_carry_the_endpoints_auth_header() {
+    let mut server = mockito::Server::new_async().await;
+    let _novel_page = mount_xtruyen_novel(&mut server).await;
+    let _groups = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body(XTRUYEN_GROUPS_HTML)
+        .create_async()
+        .await;
+    let authed = server
+        .mock("POST", "/api/api-chapters.php")
+        .match_header("x-custom-auth", mockito::Matcher::Any)
+        .match_header("referer", mockito::Matcher::Any)
+        .with_body(XTRUYEN_GROUP_A_JSON)
+        .expect_at_least(1)
+        .create_async()
+        .await;
+
+    let _ = Xtruyen.fetch_novel(&xtruyen_novel_url(&server)).await;
+
+    authed.assert_async().await;
 }
 
 #[tokio::test]
 async fn xtruyen_fetch_metadata_does_not_read_the_chapter_index() {
     let mut server = mockito::Server::new_async().await;
     let novel_page = mount_xtruyen_novel(&mut server).await;
-    let window = server
-        .mock("GET", "/truyen/truyen-thu-nghiem/chuong-1/")
-        .with_body(XTRUYEN_CHAPTER_HTML)
+    let groups = server
+        .mock("POST", "/truyen/truyen-thu-nghiem/ajax/chapters/")
+        .with_body(XTRUYEN_GROUPS_HTML)
+        .expect(0)
+        .create_async()
+        .await;
+    let api = server
+        .mock("POST", "/api/api-chapters.php")
+        .with_body(XTRUYEN_GROUP_A_JSON)
         .expect(0)
         .create_async()
         .await;
@@ -1097,10 +1126,11 @@ async fn xtruyen_fetch_metadata_does_not_read_the_chapter_index() {
     assert_eq!(novel.title, "Truyện Thử Nghiệm");
     assert!(
         novel.chapters.is_empty(),
-        "fetch_metadata must not walk the index"
+        "fetch_metadata must not read the index"
     );
     novel_page.assert_async().await;
-    window.assert_async().await;
+    groups.assert_async().await;
+    api.assert_async().await;
 }
 
 #[tokio::test]

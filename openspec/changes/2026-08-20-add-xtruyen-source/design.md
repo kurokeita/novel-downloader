@@ -7,13 +7,15 @@ adapters use:
 | --- | --- |
 | `mod.rs` | the adapter struct and its `SiteAdapter` impl, plus `rate_policy` and its measurement record, and the shared `fetch_page` status mapping |
 | `payload.rs` | recovering chapter prose from the encoded inline script: alphabet extraction, character mapping, base64, inflate, paragraph split |
-| `discovery.rs` | the chapter index walk, plus the chapter-page parsers it needs (window, forward link, chapter label) |
-| `metadata.rs` | novel-page extractors (title, author, status, description, cover, first and latest chapter links) |
-| `parser.rs` | pure URL helpers: novel-slug extraction and `rebase_onto` |
+| `discovery.rs` | assembling the chapter index from the group list, plus the chapter-label parser |
+| `metadata.rs` | novel-page extractors (title, author, status, description, cover, internal id) |
+| `parser.rs` | pure URL helpers: novel-slug extraction, origin, and chapter-address building |
+| `api.rs` | the chapter-group endpoint: its serde types, its form body, and its auth constants |
 
 `parser.rs` was not in the first draft of this table, which listed four files.
 It exists for the same reason `khodocsach/parser.rs` does: the URL helpers are
-pure, are needed by both `mod.rs` and `discovery.rs`, and belong with neither.
+pure, are needed by more than one sibling, and belong with none of them.
+`api.rs` arrived with the index fix below, mirroring `khodocsach/api.rs`.
 
 No new module outside `src/source/`. The wizard and CLI work lands in files
 that already own those concerns: `src/ui/wizard/state.rs` for the step
@@ -47,7 +49,42 @@ script normalizes the text. The recovered markup contains only `<br>` and
 the other adapters use, so this adapter introduces no second HTML-to-text
 path.
 
-## Decision: walk the chapter windows, chained by the next-chapter link
+## Decision: read the index from the site's own chapter list
+
+**This supersedes the section below, which was wrong.** The window walk shipped
+and then failed against a real novel: `vo-tan-dan-dien` indexed 101 chapters
+instead of 3611. The chapter-select window is not an enumerator at all. It
+returns an arbitrary hundred-chapter slice that need not contain the chapter
+being viewed (`chuong-3634`'s window ends at `chuong-3624`) and does not advance
+as the forward links are followed, so the walk stalls after one window. The
+claim below that the select "carries the complete slug list of the window that
+chapter belongs to" was generalized from one volume-less novel and does not hold
+site-wide.
+
+What does work is the list the site's own reader uses:
+
+1. The novel page states the novel's internal id.
+2. `POST /truyen/<slug>/ajax/chapters/` returns the accordion of chapter groups.
+   Each carries a `data-value` position range (`1-to-176`, `177-to-276`, and so
+   on, the last ending in `m`). No authentication.
+3. `POST /api/api-chapters.php` with `manga_id`, `from`, `to` and an empty `vol`
+   returns that group's chapters as JSON: `{"s": slug, "n": label, "e": title}`.
+   It requires the novel page as `Referer` (else `403`) and a static
+   `X-Custom-Auth` header (else `401`).
+
+Concatenating the groups gives the exact index, including extension chapters,
+in 36 requests for a 3611-chapter novel rather than one request per chapter. It
+also carries titles, so `ChapterRef.title` is populated from the index and no
+chapter page is fetched to learn one.
+
+The auth token is a constant baked into the site's obfuscated scripts. It
+appears in neither the page source nor any script the page loads, so there is
+nothing to read it out of at run time; it is a compiled-in constant whose
+provenance and failure mode are recorded in `api.rs`. If the site rotates it,
+every index request fails as `ClientRejected` rather than silently returning a
+short novel.
+
+## Superseded: walk the chapter windows, chained by the next-chapter link
 
 Rejected: synthesizing `1..=N`. Proposal point 2 shows this drops real
 chapters.

@@ -3,9 +3,10 @@
 //! A WordPress site on the Madara theme. Novel pages and chapter pages are both
 //! served as HTML, but the chapter prose is not: it travels in the chapter page
 //! as an encoded string that the site's own script decodes in the browser. See
-//! [`payload`] for the recovery, [`discovery`] for why the chapter index has to
-//! be walked rather than synthesized, and [`Xtruyen::rate_policy`] for the
-//! measured request limit.
+//! [`payload`] for the recovery, [`discovery`] and [`api`] for why the chapter
+//! index has to be read from the site's own chapter list rather than
+//! synthesized or scraped off a chapter page, and [`Xtruyen::rate_policy`] for
+//! the measured request limit.
 
 use std::time::Duration;
 
@@ -19,6 +20,7 @@ use crate::source::{
 };
 use crate::utils::{clean_text, http_client};
 
+mod api;
 mod discovery;
 mod metadata;
 mod parser;
@@ -65,6 +67,51 @@ async fn fetch_page(url: &str) -> SourceResult<String> {
                 message: format!("HTTP 429 from {url}"),
             },
             403 => SourceError::ClientRejected(format!("HTTP 403 from {url}")),
+            404 => SourceError::NotFound(url.to_string()),
+            code => SourceError::Other(anyhow!("HTTP {code} from {url}")),
+        });
+    }
+
+    response
+        .text()
+        .await
+        .map_err(|e| SourceError::Other(anyhow!("failed to read body from {url}: {e}")))
+}
+
+/// POST a form body and return the response, mapping statuses the same way
+/// [`fetch_page`] does.
+///
+/// Every request carries the novel page as its `Referer` and the endpoint's
+/// static auth header, because the chapter-group endpoint answers `403` without
+/// the first and `401` without the second. The group listing needs neither, but
+/// sending both to one host costs nothing and keeps one code path.
+async fn post_form(url: &str, body: &str, referer: &str) -> SourceResult<String> {
+    let client = http_client(REQUEST_TIMEOUT, None).map_err(SourceError::Other)?;
+    let response = client
+        .post(url)
+        .header(
+            "Content-Type",
+            "application/x-www-form-urlencoded; charset=UTF-8",
+        )
+        .header("X-Requested-With", "XMLHttpRequest")
+        .header("Referer", referer)
+        .header(api::AUTH_HEADER, api::AUTH_TOKEN)
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| SourceError::Other(anyhow!("failed to post to {url}: {e}")))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(match status.as_u16() {
+            429 => SourceError::RateLimited {
+                source_name: ID,
+                message: format!("HTTP 429 from {url}"),
+            },
+            401 | 403 => SourceError::ClientRejected(format!(
+                "HTTP {} from {url}: the chapter index endpoint refused this client",
+                status.as_u16()
+            )),
             404 => SourceError::NotFound(url.to_string()),
             code => SourceError::Other(anyhow!("HTTP {code} from {url}")),
         });
@@ -137,15 +184,15 @@ impl SiteAdapter for Xtruyen {
         }
     }
 
-    /// Resolve a novel URL into metadata plus the walked chapter index.
+    /// Resolve a novel URL into metadata plus the full chapter index.
     async fn fetch_novel(&self, url: &str) -> SourceResult<Novel> {
         let page = fetch_novel_page(url).await?;
-        let first = page
-            .first_chapter_href
-            .as_deref()
-            .ok_or_else(|| SourceError::Other(anyhow!("novel page links to no first chapter")))?;
-        let chapters =
-            discovery::walk_index(url, first, page.latest_chapter_href.as_deref()).await?;
+        let manga_id = page.manga_id.as_deref().ok_or_else(|| {
+            SourceError::Other(anyhow!(
+                "novel page states no id, so its chapters cannot be listed"
+            ))
+        })?;
+        let chapters = discovery::fetch_index(url, manga_id).await?;
 
         Ok(Novel {
             title: page.title,

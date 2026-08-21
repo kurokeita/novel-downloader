@@ -126,14 +126,15 @@ below list each submodule's role.
     lives in the `rate_policy` doc comment.
 
   - `xtruyen/` — an HTML adapter for a WordPress site on the Madara
-    theme, split into `parser.rs` (novel-slug extraction, and
-    `rebase_onto`, which keeps only a link's path and puts the caller's
-    origin back on it, since the site embeds absolute production URLs in
-    every link), `metadata.rs` (novel-page extractors, reading the title
-    from `og:title` because the visible heading is upper-cased in the
-    markup), `discovery.rs` (the index walk plus the chapter-page
-    parsers) and `payload.rs` (prose recovery). Three decisions are
-    worth knowing:
+    theme, split into `parser.rs` (novel-slug extraction plus the URL
+    builders, which derive every address from the caller's origin so the
+    adapter runs against `mockito`), `metadata.rs` (novel-page
+    extractors, reading the title from `og:title` because the visible
+    heading is upper-cased in the markup, and the novel's internal id
+    from inline script state), `api.rs` (the chapter-group endpoint's
+    serde types and auth constants), `discovery.rs` (assembling the index
+    from the group list) and `payload.rs` (prose recovery). Three
+    decisions are worth knowing:
     - **Chapter prose is not in the served DOM.** The reading container
       is an empty spinner; the text ships in an inline script as
       `data_x`, recovered by mapping its characters from a custom
@@ -142,17 +143,26 @@ below list each submodule's role.
       compiled-in pair as a fallback, so a redeploy that shuffles them
       does not need a new release to diagnose. A failed decode is a
       chapter failure, never an empty chapter.
-    - **The index cannot be synthesized.** Chapters live at
-      `<novel>/chuong-<n>/`, which invites metruyenhot's approach, but
-      roughly 5% of the site's chapter addresses carry a suffix past
-      their number because they are published as extensions of an earlier
-      chapter (`chuong-1`, `chuong-1-1` and `chuong-1-2` are three
-      distinct chapters). `walk_index` therefore reads the real listing:
-      every chapter page carries its hundred-chapter window in a
-      `select.single-chapter-select`, and the walk crosses window
-      boundaries by following the next-chapter link, about two requests
-      per hundred chapters. A page it cannot fetch aborts the whole index
-      rather than truncating the novel.
+    - **The index cannot be synthesized, and cannot be scraped off a
+      chapter page either.** Chapters live at `<novel>/chuong-<n>/`, which
+      invites metruyenhot's approach, but roughly 5% of the site's chapter
+      addresses carry a suffix past their number because they are
+      published as extensions of an earlier chapter (`chuong-1`,
+      `chuong-1-1` and `chuong-1-2` are three distinct chapters). The
+      `select.single-chapter-select` on a chapter page looks like an
+      enumerator and is not: it returns an arbitrary hundred-chapter slice
+      that need not contain the chapter being viewed, and it does not
+      advance as forward links are followed. An earlier implementation
+      walked it and truncated `vo-tan-dan-dien` to 101 chapters of 3611.
+      `fetch_index` instead reads the list the site's own reader uses:
+      `POST <novel>/ajax/chapters/` returns chapter groups whose
+      `data-value` is a position range (the last ending in `m`), and
+      `POST /api/api-chapters.php` turns one range into that group's
+      chapters as JSON. Roughly 36 requests for a 3600-chapter novel, and
+      the payload carries titles, so `ChapterRef.title` comes from the
+      index. The endpoint needs the novel page as `Referer` and the static
+      `X-Custom-Auth` header in `api.rs`; a group it cannot fetch aborts
+      the whole index rather than truncating the novel.
     - **`ChapterRef.number` is the index position**, not the number
       parsed from the address, because a chapter and its extensions all
       parse to the same number and that number names the output file.

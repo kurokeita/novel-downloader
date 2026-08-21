@@ -1,10 +1,15 @@
 //! Reading the chapter index off the site.
 //!
-//! Chapter addresses cannot be synthesized: a chapter published as an extension
-//! of an earlier one carries a suffix beyond that chapter's number, so a numeric
-//! range would omit it entirely. Every chapter page instead carries the complete
-//! address list of the hundred-chapter window it belongs to, and a link to the
-//! chapter that follows it, so the index is walked window by window.
+//! Chapter addresses cannot be synthesized, because a chapter published as an
+//! extension of an earlier one carries a suffix beyond that chapter's number
+//! and a numeric range would omit it. They cannot be read off a chapter page
+//! either: the chapter select there returns an arbitrary hundred-chapter slice
+//! that need not contain the chapter being viewed, so it enumerates nothing.
+//!
+//! The index therefore comes from the site's own chapter list. The novel page
+//! publishes an accordion of groups whose `data-value` holds position bounds,
+//! and [`api`] turns one such pair into that group's chapters. A novel of 3600
+//! chapters costs 36 requests.
 
 use std::collections::HashSet;
 
@@ -15,21 +20,16 @@ use scraper::{Html, Selector};
 use crate::source::{ChapterRef, SourceError, SourceResult};
 use crate::utils::clean_text;
 
-use super::parser;
+use super::{api, parser};
 
-/// Upper bound on windows walked, so a site that links a window back to an
-/// earlier one cannot spin forever. At a hundred chapters per window this
-/// allows novels far longer than any the site publishes.
-const MAX_WINDOWS: usize = 500;
+/// Path of the endpoint listing a novel's chapter groups, relative to the
+/// novel page. It needs no authentication, unlike the group contents.
+const GROUPS_PATH: &str = "ajax/chapters/";
 
-/// The chapter select, whose options carry the window's addresses. The page also
-/// renders a volume select whose options are group ranges rather than chapters,
-/// which is why this matches the narrower class.
-static WINDOW_OPTION: Lazy<Selector> =
-    Lazy::new(|| Selector::parse("select.single-chapter-select option[data-redirect]").unwrap());
-
-/// Link to the chapter after the one being viewed.
-static NEXT_LINK: Lazy<Selector> = Lazy::new(|| Selector::parse(".nav-next a[href]").unwrap());
+/// One collapsed chapter group. Its `data-value` is the position range the
+/// group covers, which is the key [`api`] wants.
+static GROUP_ITEM: Lazy<Selector> =
+    Lazy::new(|| Selector::parse("li.has-child[data-value]").unwrap());
 
 /// The chapter's own label, as shown above the prose.
 static CHAPTER_LABEL: Lazy<Selector> = Lazy::new(|| Selector::parse(".entry-header h2").unwrap());
@@ -38,34 +38,22 @@ static CHAPTER_LABEL: Lazy<Selector> = Lazy::new(|| Selector::parse(".entry-head
 static MINI_LABEL: Lazy<Selector> =
     Lazy::new(|| Selector::parse("#tts-mini-chapter-title").unwrap());
 
-/// Read the addresses of every chapter in this page's window, in reading order.
-/// The page renders the same select once per reading nav, so addresses are
-/// deduplicated while their first appearance fixes the order.
-pub(super) fn parse_window(page_html: &str) -> Vec<String> {
-    let document = Html::parse_document(page_html);
-    let mut seen = HashSet::new();
+/// Read every chapter group's position bounds, in reading order. A value that
+/// is not a range is skipped rather than guessed at.
+pub(super) fn parse_group_bounds(groups_html: &str) -> Vec<(String, String)> {
+    let document = Html::parse_document(groups_html);
     document
-        .select(&WINDOW_OPTION)
-        .filter_map(|option| option.value().attr("data-redirect"))
-        .filter(|address| !address.is_empty())
-        .filter(|address| seen.insert(address.to_string()))
-        .map(str::to_string)
+        .select(&GROUP_ITEM)
+        .filter_map(|item| item.value().attr("data-value"))
+        .filter_map(|value| value.split_once("-to-"))
+        .filter(|(from, to)| !from.is_empty() && !to.is_empty())
+        .map(|(from, to)| (from.to_string(), to.to_string()))
         .collect()
 }
 
-/// Read the address of the chapter that follows this one, when there is one.
-/// The final chapter carries no forward link, which is what ends the walk.
-pub(super) fn parse_next_href(page_html: &str) -> Option<String> {
-    Html::parse_document(page_html)
-        .select(&NEXT_LINK)
-        .next()
-        .and_then(|link| link.value().attr("href"))
-        .filter(|href| !href.is_empty())
-        .map(str::to_string)
-}
-
 /// Read this chapter's own label, preferring the heading above the prose and
-/// falling back to the reader's floating player.
+/// falling back to the reader's floating player. Only used when the index did
+/// not supply a title.
 pub(super) fn parse_chapter_title(page_html: &str) -> Option<String> {
     let document = Html::parse_document(page_html);
     document
@@ -81,162 +69,87 @@ pub(super) fn parse_chapter_title(page_html: &str) -> Option<String> {
         })
 }
 
-/// Walk the whole chapter index, starting from the novel's first chapter and
-/// stopping once the novel's latest chapter has been seen.
+/// Read the whole chapter index: the group list, then each group's chapters.
 ///
-/// A page that cannot be retrieved fails the whole index rather than truncating
-/// it, because a short index is indistinguishable from a short novel and would
-/// silently produce an incomplete book.
-pub(super) async fn walk_index(
-    novel_url: &str,
-    first_chapter_href: &str,
-    latest_chapter_href: Option<&str>,
-) -> SourceResult<Vec<ChapterRef>> {
-    let latest = latest_chapter_href
-        .map(|href| parser::rebase_onto(novel_url, href))
-        .transpose()?;
-
-    let mut locators: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut cursor = Some(parser::rebase_onto(novel_url, first_chapter_href)?);
-
-    for _ in 0..MAX_WINDOWS {
-        let Some(current) = cursor.take() else { break };
-        let page = super::fetch_page(&current).await?;
-
-        let mut fresh = 0;
-        for href in parse_window(&page) {
-            let locator = parser::rebase_onto(novel_url, &href)?;
-            if seen.insert(locator.clone()) {
-                locators.push(locator);
-                fresh += 1;
-            }
-        }
-
-        if fresh == 0 {
-            // Nothing new means the page carried no usable select, or the walk
-            // has come back round to a window it already read. Take the page
-            // itself so a lone chapter is still indexed, then stop.
-            if seen.insert(current.clone()) {
-                locators.push(current);
-            }
-            break;
-        }
-
-        if latest
-            .as_ref()
-            .is_some_and(|latest| seen.contains(latest.as_str()))
-        {
-            break;
-        }
-
-        let tail = locators
-            .last()
-            .cloned()
-            .ok_or_else(|| SourceError::Other(anyhow!("chapter window came back empty")))?;
-        let tail_page = if tail == current {
-            page
-        } else {
-            super::fetch_page(&tail).await?
-        };
-
-        cursor = match parse_next_href(&tail_page) {
-            Some(href) => {
-                let next = parser::rebase_onto(novel_url, &href)?;
-                (!seen.contains(&next)).then_some(next)
-            }
-            None => None,
-        };
+/// A group that cannot be retrieved fails the whole index rather than
+/// truncating it, because a short index is indistinguishable from a short novel
+/// and would silently produce an incomplete book.
+pub(super) async fn fetch_index(novel_url: &str, manga_id: &str) -> SourceResult<Vec<ChapterRef>> {
+    let groups_url = parser::join_path(novel_url, GROUPS_PATH)?;
+    let groups_html = super::post_form(&groups_url, "", novel_url).await?;
+    let bounds = parse_group_bounds(&groups_html);
+    if bounds.is_empty() {
+        return Err(SourceError::Other(anyhow!(
+            "no chapter groups listed for {novel_url}"
+        )));
     }
 
-    if locators.is_empty() {
+    let endpoint = format!(
+        "{}{}",
+        parser::origin_of(novel_url)?,
+        api::CHAPTERS_ENDPOINT
+    );
+    let mut chapters: Vec<ChapterRef> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for (from, to) in bounds {
+        let body = api::group_form_body(manga_id, &from, &to);
+        let json = super::post_form(&endpoint, &body, novel_url).await?;
+        let entries: Vec<api::ChapterEntry> = serde_json::from_str(&json).map_err(|e| {
+            SourceError::Other(anyhow!(
+                "unexpected chapter group payload for {from}-to-{to}: {e}"
+            ))
+        })?;
+
+        for entry in entries {
+            let locator = parser::chapter_url(novel_url, &entry.slug)?;
+            if seen.insert(locator.clone()) {
+                chapters.push(ChapterRef {
+                    number: chapters.len() as u32 + 1,
+                    title: Some(entry.display_title()),
+                    locator,
+                });
+            }
+        }
+    }
+
+    if chapters.is_empty() {
         return Err(SourceError::Other(anyhow!(
             "no chapters found for {novel_url}"
         )));
     }
-
-    Ok(locators
-        .into_iter()
-        .enumerate()
-        .map(|(index, locator)| ChapterRef {
-            number: index as u32 + 1,
-            title: None,
-            locator,
-        })
-        .collect())
+    Ok(chapters)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    const GROUPS_HTML: &str = include_str!("../../../tests/fixtures/xtruyen_chapter_groups.html");
     const CHAPTER_HTML: &str = include_str!("../../../tests/fixtures/xtruyen_chapter.html");
-    const SUFFIXED_HTML: &str =
-        include_str!("../../../tests/fixtures/xtruyen_chapter_suffixed.html");
 
     #[test]
-    fn parse_window_reads_every_address_once_in_order() {
+    fn parse_group_bounds_reads_every_group_in_order() {
         assert_eq!(
-            parse_window(CHAPTER_HTML),
+            parse_group_bounds(GROUPS_HTML),
             vec![
-                "https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-1/",
-                "https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-2/",
-                "https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-3/",
+                ("1".to_string(), "2".to_string()),
+                ("3".to_string(), "3m".to_string()),
             ],
-            "the page renders the select twice, so the addresses must be deduplicated"
+            "bounds are positions, and the final group's upper bound keeps its suffix"
         );
     }
 
     #[test]
-    fn parse_window_keeps_extension_chapters_in_place() {
-        assert_eq!(
-            parse_window(SUFFIXED_HTML),
-            vec![
-                "https://xtruyen.vn/truyen/truyen-mo-rong/chuong-1/",
-                "https://xtruyen.vn/truyen/truyen-mo-rong/chuong-1-1/",
-                "https://xtruyen.vn/truyen/truyen-mo-rong/chuong-1-2/",
-                "https://xtruyen.vn/truyen/truyen-mo-rong/chuong-2/",
-            ],
-            "each extension follows the chapter it extends"
-        );
+    fn parse_group_bounds_returns_empty_when_no_groups_are_listed() {
+        assert!(parse_group_bounds("<div></div>").is_empty());
     }
 
     #[test]
-    fn parse_window_ignores_the_volume_select() {
+    fn parse_group_bounds_ignores_a_value_that_is_not_a_range() {
         assert!(
-            !parse_window(CHAPTER_HTML)
-                .iter()
-                .any(|address| address.contains("1-to-100")),
-            "the volume select lists group ranges, not chapters"
+            parse_group_bounds(r#"<li class="has-child" data-value="rubbish"></li>"#).is_empty()
         );
-    }
-
-    #[test]
-    fn parse_window_returns_empty_for_a_page_with_no_select() {
-        assert!(parse_window("<html><body></body></html>").is_empty());
-    }
-
-    #[test]
-    fn parse_next_href_reads_the_forward_link() {
-        assert_eq!(
-            parse_next_href(CHAPTER_HTML).as_deref(),
-            Some("https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-2/")
-        );
-    }
-
-    #[test]
-    fn parse_next_href_reads_a_forward_link_to_an_extension_chapter() {
-        assert_eq!(
-            parse_next_href(SUFFIXED_HTML).as_deref(),
-            Some("https://xtruyen.vn/truyen/truyen-mo-rong/chuong-1-2/"),
-            "a numeric guess would jump over this chapter"
-        );
-    }
-
-    #[test]
-    fn parse_next_href_is_none_on_the_final_chapter() {
-        let final_chapter = CHAPTER_HTML.replace("nav-next", "nav-nothing");
-        assert_eq!(parse_next_href(&final_chapter), None);
     }
 
     #[test]

@@ -133,23 +133,41 @@ require a new release to diagnose.
 - **THEN** the chapter is reported as failed with a decoding error
 - **AND** no chapter file is written for it
 
-### Requirement: Chapter titles come from the chapter page
+### Requirement: Chapter titles come from the index
 
-The chapter index does not carry chapter titles. The source SHALL read each
-chapter's title from its own page when the chapter is fetched, and SHALL use
-the site's own chapter label rather than deriving a title from the chapter's
-address or sequence number.
+The chapter index carries each chapter's title, so the source SHALL take titles
+from it rather than fetching a page to learn one. Where a chapter's title is
+absent from the index, the source SHALL fall back to the label on the chapter's
+own page, and failing that to the chapter's sequence number, so that every
+stored chapter has a title.
 
-#### Scenario: The site's chapter label is used
+#### Scenario: The index supplies the title
 
-- **WHEN** a chapter is fetched from a page that carries a chapter label
-- **THEN** the stored chapter's title is that label
+- **WHEN** a novel is indexed
+- **THEN** each entry carries the chapter's title as the site publishes it
+- **AND** no chapter page is fetched in order to obtain it
 
-#### Scenario: A chapter page with no label still yields a chapter
+#### Scenario: A chapter with no title in the index still gets one
 
-- **WHEN** a chapter page carries no chapter label
-- **THEN** the chapter is still stored, with a title derived from its
-  sequence number
+- **WHEN** a chapter's title is absent from the index
+- **THEN** the chapter is still stored, titled from its own page's label, or
+  from its sequence number when the page carries no label either
+
+### Requirement: A refused index request is reported, never treated as a short novel
+
+Reading the index requires the source to identify itself to the site in the way
+the site's own reader does. If that identification stops being accepted, the
+source SHALL report the refusal.
+
+It SHALL NOT fall back to any means of guessing the index, because a guess that
+silently omits chapters is worse than a run that stops and says why.
+
+#### Scenario: A rejected index request surfaces as a rejection
+
+- **WHEN** the site refuses an index request because it does not accept how the
+  source identified itself
+- **THEN** the run fails with an error stating the request was rejected
+- **AND** no partial index is returned
 
 ### Requirement: Novel metadata comes from the novel page
 

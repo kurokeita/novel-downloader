@@ -3,6 +3,7 @@
 
 use anyhow::{Result, anyhow};
 use once_cell::sync::Lazy;
+use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
 
 use crate::utils::clean_text;
@@ -35,12 +36,10 @@ static ROW_HEADING: Lazy<Selector> = Lazy::new(|| Selector::parse(".summary-head
 /// The value half of a metadata row.
 static ROW_VALUE: Lazy<Selector> = Lazy::new(|| Selector::parse(".summary-content").unwrap());
 
-/// First and last chapter buttons, in that order.
-static INIT_LINKS: Lazy<Selector> = Lazy::new(|| Selector::parse("#init-links a").unwrap());
-
-/// Latest chapter link, a second place the newest chapter is published.
-static LATEST_CHAPTER: Lazy<Selector> =
-    Lazy::new(|| Selector::parse(".summary-content-chapter a").unwrap());
+/// The novel's internal id, as the page's inline configuration states it. It is
+/// script state rather than markup, so it is matched rather than selected.
+static MANGA_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r#"manga_id["\s:=]+["']?(\d+)"#).unwrap());
 
 /// Label of the row holding the publication status.
 const STATUS_LABEL: &str = "Trạng thái";
@@ -75,10 +74,9 @@ pub(super) struct NovelPage {
     pub(super) status: Option<String>,
     /// Cover image address when the page advertises one.
     pub(super) cover_url: Option<String>,
-    /// Address of the novel's first chapter, as written on the page.
-    pub(super) first_chapter_href: Option<String>,
-    /// Address of the novel's latest chapter, as written on the page.
-    pub(super) latest_chapter_href: Option<String>,
+    /// The site's internal id for this novel, which the chapter-group endpoint
+    /// requires. Absent only on a page that is not a novel page.
+    pub(super) manga_id: Option<String>,
 }
 
 /// Read every field the novel page carries. Only the title is required: it
@@ -96,18 +94,9 @@ pub(super) fn parse_novel_page(html: &str) -> Result<NovelPage> {
         .filter(|title| !title.is_empty())
         .ok_or_else(|| anyhow!("page names no novel: no title found"))?;
 
-    let mut init_links = document
-        .select(&INIT_LINKS)
-        .filter_map(|link| link.value().attr("href"))
-        .map(str::to_string);
-    let first_chapter_href = init_links.next();
-    let latest_chapter_href = init_links.next().or_else(|| {
-        document
-            .select(&LATEST_CHAPTER)
-            .next()
-            .and_then(|link| link.value().attr("href"))
-            .map(str::to_string)
-    });
+    let manga_id = MANGA_ID_RE
+        .captures(html)
+        .map(|captures| captures[1].to_string());
 
     Ok(NovelPage {
         title,
@@ -127,8 +116,7 @@ pub(super) fn parse_novel_page(html: &str) -> Result<NovelPage> {
             .next()
             .and_then(|image| image.value().attr("src"))
             .map(str::to_string),
-        first_chapter_href,
-        latest_chapter_href,
+        manga_id,
     })
 }
 
@@ -183,16 +171,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_novel_page_reads_both_chapter_addresses() {
-        let page = parse_novel_page(NOVEL_HTML).unwrap();
+    fn parse_novel_page_reads_the_novels_internal_id() {
         assert_eq!(
-            page.first_chapter_href,
-            Some("https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-1/".to_string())
+            parse_novel_page(NOVEL_HTML).unwrap().manga_id,
+            Some("10000001".to_string()),
+            "the chapter-group endpoint cannot be called without it"
         );
-        assert_eq!(
-            page.latest_chapter_href,
-            Some("https://xtruyen.vn/truyen/truyen-thu-nghiem/chuong-3/".to_string())
-        );
+    }
+
+    #[test]
+    fn parse_novel_page_leaves_the_id_absent_when_the_page_states_none() {
+        let stripped = NOVEL_HTML.replace("manga_id", "other_id");
+        assert_eq!(parse_novel_page(&stripped).unwrap().manga_id, None);
     }
 
     #[test]
