@@ -9,18 +9,32 @@ Supported hosts:
 - `metruyenhotvn.com`
 - `metruyenhotne.com`
 - `khodocsach.com`
+- `xtruyen.vn`
 
 You never pick a source. Pass a novel URL and the host decides which adapter
 handles it: the metruyenhot hosts are scraped from HTML, `khodocsach.com` is
-read through its JSON API. URLs from any other host are rejected with a clear
-error before any network fetch. The hidden `--allow-any-host` flag bypasses the
-check for local mock fixtures and integration tests; it is not intended for
-normal use.
+read through its JSON API, and `xtruyen.vn` is scraped from HTML whose chapter
+text arrives encoded and is decoded locally. URLs from any other host are
+rejected with a clear error before any network fetch. The hidden
+`--allow-any-host` flag bypasses the check for local mock fixtures and
+integration tests; it is not intended for normal use.
 
 A khodocsach chapter costs two requests, a short-lived ticket followed by the
 chapter content, so its adapter does more work per chapter than the metruyenhot
-scraper does. Interrupting a run costs nothing on either host: re-run the same
+scraper does. Interrupting a run costs nothing on any host: re-run the same
 command and already-saved chapters are skipped.
+
+`xtruyen.vn` enforces a request limit per client address, so its adapter sets
+the pace: at most 2 concurrent requests with half a second between them. That is
+applied whatever `--workers` and `--delay` say, and the run tells you when it
+overrides either. The interactive wizard does not ask for those two values for
+this host at all, since the answers would be discarded, and the confirmation
+screen shows the pacing the run will actually use. Expect roughly two minutes
+for a 200-chapter novel. Chapter numbering follows the site's own reading order
+rather than the number printed on each chapter, because some chapters are
+published as extensions of an earlier one (`chuong-12-1` following
+`chuong-12`); on a novel like that, `--start` and `--end` count positions, so
+they can drift from the labels the site shows.
 
 ## Features
 
@@ -164,7 +178,7 @@ flowchart TD
 
 - `src/cli.rs`: argument parsing and option validation.
 - `src/bin/novel-downloader.rs`: process entry point and top-level orchestration.
-- `src/source/`: the site seam. The `SiteAdapter` trait, the shared `Novel`, `ChapterRef`, `RatePolicy` and `SourceError` types, the host registry, and one module per site (`metruyenhot` scrapes HTML, `khodocsach` reads a JSON API).
+- `src/source/`: the site seam. The `SiteAdapter` trait, the shared `Novel`, `ChapterRef`, `RatePolicy` and `SourceError` types, the host registry, and one module per site (`metruyenhot` scrapes HTML, `khodocsach` reads a JSON API, `xtruyen` scrapes HTML and decodes an encoded chapter payload).
 - `src/crawler/`: the on-disk chapter document format, plus the fetch-write-skip flow and its existing-file policy.
 - `src/runner.rs`: sequential and parallel chapter runners with progress events, concurrency clamping, and rate-policy pacing.
 - `src/epub/`: saved-chapter reading, cover handling, EPUB XML/XHTML generation, and archive writing.

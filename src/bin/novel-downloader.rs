@@ -651,6 +651,14 @@ async fn run() -> i32 {
         }
     };
 
+    if let Some(notice) = novel_downloader::cli::delay_override_notice(
+        adapter.display_name(),
+        plan.delay,
+        &adapter.rate_policy(),
+    ) {
+        println!("{notice}");
+    }
+
     execute_plan(plan, adapter, interactive).await
 }
 

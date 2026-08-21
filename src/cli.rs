@@ -229,3 +229,22 @@ pub fn validate_chapter_range(start: u32, end: u32) -> Option<String> {
 pub fn chapter_range(start: u32, end: u32) -> Vec<u32> {
     (start..=end).collect()
 }
+
+/// Message to show when the resolved source raises the requested delay to its
+/// own floor, or `None` when the request is already within policy.
+///
+/// The worker clamp has its own run-scoped progress event, so only the delay is
+/// reported here. Neither is an error: the pipeline satisfies a too-fast request
+/// by slowing down, and a caller should not have to know each site's limits.
+pub fn delay_override_notice(
+    source: &str,
+    requested: f64,
+    policy: &crate::source::RatePolicy,
+) -> Option<String> {
+    let effective = policy.effective_delay(requested);
+    (effective > requested).then(|| {
+        format!(
+            "[INFO] {source} requires at least {effective}s between requests; using {effective}s instead of {requested}s."
+        )
+    })
+}

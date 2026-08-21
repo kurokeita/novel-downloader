@@ -28,6 +28,8 @@ clap = { version = "4", features = ["derive"] }
 ratatui = "0.30"
 crossterm = "0.29"
 zip = { version = "8", default-features = false, features = ["deflate"] }
+base64 = "0.22"
+flate2 = "1"
 unicode-normalization = "0.1"
 mime_guess = "2"
 regex = "1"

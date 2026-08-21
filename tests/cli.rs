@@ -1,7 +1,10 @@
 use novel_downloader::cli::{
-    CliOptions, chapter_range, parse_from, validate_chapter_range, validate_shared_options,
+    CliOptions, chapter_range, delay_override_notice, parse_from, validate_chapter_range,
+    validate_shared_options,
 };
 use novel_downloader::crawler::ExistingFilePolicy;
+use novel_downloader::source::RatePolicy;
+use std::time::Duration;
 
 #[test]
 fn parse_from_uses_defaults_when_only_base_url_given() {
@@ -165,4 +168,40 @@ fn parse_from_accepts_allow_any_host_flag() {
     ])
     .unwrap();
     assert!(parsed.options.allow_any_host);
+}
+
+/// A policy shaped like xtruyen's, which requires half a second per request.
+const PACED_POLICY: RatePolicy = RatePolicy {
+    max_concurrency: 2,
+    min_delay: Duration::from_millis(500),
+    max_retries: 3,
+    backoff_base: Duration::from_secs(2),
+};
+
+/// The policy metruyenhot and khodocsach declare, which constrains nothing.
+const OPEN_POLICY: RatePolicy = RatePolicy {
+    max_concurrency: usize::MAX,
+    min_delay: Duration::ZERO,
+    max_retries: 2,
+    backoff_base: Duration::from_secs(2),
+};
+
+#[test]
+fn delay_override_notice_reports_the_raised_delay_and_names_the_source() {
+    let notice = delay_override_notice("xtruyen", 0.0, &PACED_POLICY)
+        .expect("raising the delay must be reported, not applied silently");
+    assert!(notice.contains("xtruyen"), "got {notice}");
+    assert!(
+        notice.contains("0.5"),
+        "the notice must name the delay in force, got {notice}"
+    );
+}
+
+#[test]
+fn delay_override_notice_is_silent_when_the_request_is_within_policy() {
+    assert_eq!(delay_override_notice("xtruyen", 2.0, &PACED_POLICY), None);
+    assert_eq!(
+        delay_override_notice("metruyenhot", 0.0, &OPEN_POLICY),
+        None
+    );
 }

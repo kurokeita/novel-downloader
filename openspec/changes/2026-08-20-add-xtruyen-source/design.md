@@ -5,10 +5,15 @@ adapters use:
 
 | File | Role |
 | --- | --- |
-| `mod.rs` | the adapter struct and its `SiteAdapter` impl, plus `rate_policy` and its measurement record |
+| `mod.rs` | the adapter struct and its `SiteAdapter` impl, plus `rate_policy` and its measurement record, and the shared `fetch_page` status mapping |
 | `payload.rs` | recovering chapter prose from the encoded inline script: alphabet extraction, character mapping, base64, inflate, paragraph split |
-| `discovery.rs` | the chapter index walk |
-| `metadata.rs` | main-page extractors (title, author, status, description, cover, first and latest chapter links) |
+| `discovery.rs` | the chapter index walk, plus the chapter-page parsers it needs (window, forward link, chapter label) |
+| `metadata.rs` | novel-page extractors (title, author, status, description, cover, first and latest chapter links) |
+| `parser.rs` | pure URL helpers: novel-slug extraction and `rebase_onto` |
+
+`parser.rs` was not in the first draft of this table, which listed four files.
+It exists for the same reason `khodocsach/parser.rs` does: the URL helpers are
+pure, are needed by both `mod.rs` and `discovery.rs`, and belong with neither.
 
 No new module outside `src/source/`. The wizard and CLI work lands in files
 that already own those concerns: `src/ui/wizard/state.rs` for the step
@@ -156,19 +161,30 @@ existing-file prompt becomes the end-chapter prompt in the locked case. The
 function is pure, so inline `#[cfg(test)]` tests cover it without a
 terminal, which is the only way this requirement is testable at all.
 
-The wizard resolves the pacing once, after the URL is accepted, and caches
-it on `WizardState`, the same pattern `recent_fonts` uses to avoid
-recomputing on back-navigation. When pacing is fixed the wizard shows a
-note stating the enforced worker count and delay and that the site requires
-them, so a skipped prompt reads as a deliberate constraint rather than a
-missing step.
+Two details of this settled differently once the code was written, and the
+build follows the code rather than this paragraph's first draft.
 
-`build_summary` then reports the resolved pacing rather than the state's
-requested values. This is the same defect class the archived
-`skip-output-root-prompt-in-epub-only` change fixed for paths: the summary
-must not name a value the run will not use. `SummaryParams` is public and
-this project keeps no compatibility shims, so its shape changes and the
-compiler pushes the call sites.
+The pacing is **not** cached on `WizardState`. Caching was proposed by analogy
+with `recent_fonts`, but that cache exists because it stats the filesystem;
+resolving a host to an adapter is a string comparison against a static slice
+with no I/O at all. `WizardState::rate_policy` therefore reads it where it is
+needed, which also removes the invalidation the cache would have needed when
+the URL changes.
+
+There is likewise **no separate note screen**. The enforced numbers are stated
+on the confirmation summary instead, as `Workers: 2 (required by xtruyen)` and
+the same suffix on the delay line. That satisfies the same requirement with a
+surface the user already reads, and avoids an extra screen on every pass
+through the step, including back-navigation. The wizard writes the enforced
+values into the run's own state at the end of the end-chapter step, so the
+summary, the plan and the runner cannot disagree, and `build_summary` needs
+only one added flag rather than a reshaped parameter list.
+
+Reporting the pacing is the same defect class the archived
+`skip-output-root-prompt-in-epub-only` change fixed for paths: the summary must
+not name a value the run will not use. `SummaryParams` is public and this
+project keeps no compatibility shims, so it gains a field and the compiler
+pushes the call sites.
 
 For the non-interactive CLI the flags stay accepted and are reported when
 overridden, rather than becoming a hard error. A rejected `--workers 8`

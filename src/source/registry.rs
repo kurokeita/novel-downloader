@@ -7,10 +7,11 @@ use url::Url;
 use super::SiteAdapter;
 use super::khodocsach::Khodocsach;
 use super::metruyenhot::Metruyenhot;
+use super::xtruyen::Xtruyen;
 
 /// Every compiled-in adapter. Adding a site appends one entry here and
 /// touches nothing else outside its own module.
-static ADAPTERS: &[&dyn SiteAdapter] = &[&Khodocsach, &Metruyenhot];
+static ADAPTERS: &[&dyn SiteAdapter] = &[&Khodocsach, &Metruyenhot, &Xtruyen];
 
 /// Hosts accepted with `--allow-any-host`, for local fixtures and the
 /// `mockito`-backed integration tests.

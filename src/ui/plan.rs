@@ -106,6 +106,10 @@ pub struct SummaryParams<'a> {
     pub novel_title: Option<&'a str>,
     /// Book author that will be written to the EPUB, if known.
     pub novel_author: Option<&'a str>,
+    /// Whether the resolved source fixes the pacing, in which case `workers`
+    /// and `delay` are the source's values rather than the user's and the
+    /// summary says so.
+    pub pacing_fixed_by_source: bool,
 }
 
 /// Render the plan summary text shown before confirmation.
@@ -124,6 +128,7 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
         fast_skip,
         novel_title,
         novel_author,
+        pacing_fixed_by_source,
     } = params;
     let mode_label = match mode {
         CrawlMode::Crawl => "Crawl chapters",
@@ -165,8 +170,16 @@ pub fn build_summary(params: SummaryParams<'_>) -> String {
     // Always show the per-run knobs whenever a download stage is part of the
     // plan, so the user can verify their choices on one screen.
     if mode != CrawlMode::EpubOnly || has_chapter_range {
-        lines.push(format!("Workers: {}", workers));
-        lines.push(format!("Delay: {}s", delay));
+        // A source that paces itself has already overridden these two, so the
+        // summary names the reason rather than showing numbers the user never
+        // chose and cannot change.
+        let pacing_note = if pacing_fixed_by_source {
+            format!(" (required by {source})")
+        } else {
+            String::new()
+        };
+        lines.push(format!("Workers: {workers}{pacing_note}"));
+        lines.push(format!("Delay: {delay}s{pacing_note}"));
         lines.push(format!("If chapter exists: {}", if_exists_label));
         lines.push(format!(
             "Fast skip: {}",
