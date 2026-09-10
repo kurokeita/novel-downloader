@@ -481,3 +481,20 @@ build the EPUB → exit `0` (success), `2` (partial failures), or `3`
   stall, both self-healing as the window turns over. Deliberately not
   built: age-pruning samples older than ~60s, and time-based window
   sizing.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues on `kurokeita/novel-downloader`, driven by the
+`gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See
+`docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See
+`docs/agents/domain.md`.
