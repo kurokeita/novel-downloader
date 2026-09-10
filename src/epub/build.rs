@@ -53,6 +53,11 @@ pub struct BuildEpubParams {
     /// Novel author as the source reported it, used unless
     /// `metadata_override` supplies one.
     pub novel_author: Option<String>,
+    /// Book description to write into the package document, or `None` for a
+    /// book without one. Unlike title and author this has no override twin:
+    /// the writer never reads HTML, so there is no page-derived fallback to
+    /// suppress and both surfaces put their effective value here.
+    pub description: Option<String>,
     /// Absolute cover image URL the source reported, when it has one.
     pub cover_url: Option<String>,
     /// Directory containing the saved chapter HTML files.
@@ -214,6 +219,7 @@ pub async fn build_epub(params: BuildEpubParams) -> Result<PathBuf> {
         identifier: params.novel_main_url.clone(),
         title: novel_title.clone(),
         author: author.clone(),
+        description: params.description.clone(),
         include_cover: cover_bytes.is_some(),
         cover_ext: cover_ext.clone(),
         include_font: font_bytes.is_some(),

@@ -666,6 +666,7 @@ pub(super) fn step_confirm(state: &mut WizardState) -> Result<StepResult> {
             novel_title: state.novel_title.clone(),
             novel_author: state.novel_author.clone(),
             novel_cover_url: state.novel_cover_url.clone(),
+            novel_description: state.novel_description.clone(),
         }))),
         PromptOutcome::Submitted(false) => Ok(StepResult::Next(previous)),
         PromptOutcome::Back => Ok(StepResult::Next(previous)),

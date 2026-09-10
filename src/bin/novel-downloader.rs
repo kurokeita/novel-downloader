@@ -61,6 +61,7 @@ async fn build_non_interactive_plan(
     let novel_title = Some(novel.title.clone());
     let novel_author = novel.author.clone();
     let novel_cover_url = novel.cover_url.clone();
+    let novel_description = novel.description.clone();
 
     if !options.epub_only {
         let last = novel.chapters.last().map(|chapter| chapter.number);
@@ -115,6 +116,7 @@ async fn build_non_interactive_plan(
         novel_title,
         novel_author,
         novel_cover_url,
+        novel_description,
     })
 }
 
@@ -516,6 +518,10 @@ async fn execute_plan(
             .unwrap_or_else(|| "Unknown Novel".to_string());
         let novel_author = plan.novel_author.clone();
         let cover_url = plan.novel_cover_url.clone();
+        // Not part of `metadata_override`: the description has no
+        // page-derived fallback to suppress, so both surfaces route their
+        // effective value through this one field.
+        let description = plan.novel_description.clone();
         // In interactive mode the wizard collected (and let the user edit) the
         // title/author, so pass them through verbatim as an explicit override.
         // Non-interactive runs leave this `None`; the title and author already
@@ -532,6 +538,7 @@ async fn execute_plan(
                 novel_main_url,
                 novel_title,
                 novel_author,
+                description,
                 cover_url,
                 chapter_dir,
                 output_epub: None,

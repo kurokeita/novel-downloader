@@ -216,6 +216,7 @@ fn content_opf_includes_metadata_and_spine() {
         identifier: "https://x/".into(),
         title: "T".into(),
         author: Some("A".into()),
+        description: Some("D".into()),
         include_cover: true,
         cover_ext: ".jpg".into(),
         include_font: true,
@@ -229,6 +230,10 @@ fn content_opf_includes_metadata_and_spine() {
     });
     assert!(opf.contains("<dc:title>T</dc:title>"));
     assert!(opf.contains("<dc:creator>A</dc:creator>"));
+    assert!(opf.contains("<dc:description>D</dc:description>"));
+    assert!(opf.contains("<meta property=\"belongs-to-collection\" id=\"series\">T</meta>"));
+    assert!(opf.contains("<meta refines=\"#series\" property=\"collection-type\">series</meta>"));
+    assert!(opf.contains("<meta refines=\"#series\" property=\"group-position\">1</meta>"));
     assert!(opf.contains("<meta name=\"cover\" content=\"cover-image\"/>"));
     assert!(opf.contains("href=\"cover.jpg\""));
     assert!(opf.contains("href=\"fonts/epub-font.ttf\""));
@@ -241,6 +246,7 @@ fn content_opf_declares_dcterms_modified_exactly_once() {
         identifier: "https://x/".into(),
         title: "T".into(),
         author: None,
+        description: None,
         include_cover: false,
         cover_ext: ".jpg".into(),
         include_font: false,
@@ -284,6 +290,7 @@ async fn build_epub_uses_metadata_override_for_title_author_and_filename() {
         novel_main_url: "https://example.test/foo/".to_string(),
         novel_title: "Source Title".to_string(),
         novel_author: Some("Source Author".to_string()),
+        description: None,
         cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: None,
@@ -344,6 +351,7 @@ async fn build_epub_produces_valid_zip_with_expected_entries() {
         novel_main_url: "https://example.test/foo/".to_string(),
         novel_title: "Truyện Đẹp".to_string(),
         novel_author: Some("Người Viết".to_string()),
+        description: None,
         cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
@@ -406,6 +414,7 @@ async fn build_epub_stamps_a_whole_second_utc_modification_timestamp() {
         novel_main_url: "https://example.test/foo/".to_string(),
         novel_title: "T".to_string(),
         novel_author: None,
+        description: None,
         cover_url: None,
         chapter_dir,
         output_epub: Some(output.clone()),
@@ -512,6 +521,7 @@ async fn build_epub_drop_caps_the_chapter_but_not_the_title_page() {
         novel_main_url: "https://example.test/foo/".to_string(),
         novel_title: "Truyện Đẹp".to_string(),
         novel_author: Some("Người Viết".to_string()),
+        description: None,
         cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
@@ -565,6 +575,7 @@ async fn build_epub_stylesheet_carries_the_drop_cap_and_toc_list_rules() {
         novel_main_url: "https://example.test/foo/".to_string(),
         novel_title: "Truyện Đẹp".to_string(),
         novel_author: Some("Người Viết".to_string()),
+        description: None,
         cover_url: None,
         chapter_dir: chapter_dir.clone(),
         output_epub: Some(output.clone()),
@@ -611,5 +622,147 @@ fn split_drop_cap_composes_a_decomposed_letter_into_one_character() {
     assert_eq!(
         split_drop_cap(decomposed),
         Some(('\u{1EBE}', "m đềm trôi qua".to_string()))
+    );
+}
+
+/// Minimal package-document params for the catalog-metadata tests, so each
+/// one names only the title and description it cares about.
+fn catalog_opf_params(title: &str, description: Option<&str>) -> ContentOpfParams {
+    ContentOpfParams {
+        identifier: "https://x/".into(),
+        title: title.into(),
+        author: None,
+        description: description.map(str::to_string),
+        include_cover: false,
+        cover_ext: ".jpg".into(),
+        include_font: false,
+        font_file_name: "epub-font.ttf".into(),
+        chapters: vec![ChapterEntry {
+            id: "ch1".into(),
+            file_name: "chapter_0001.xhtml".into(),
+            title: "C1".into(),
+        }],
+        modified: "2026-08-20T08:42:00Z".into(),
+    }
+}
+
+/// Inner text of the package document's `<metadata>` element, so a test can
+/// assert an entry sits inside it rather than anywhere in the file.
+fn metadata_element(opf: &str) -> String {
+    opf.split_once("<metadata")
+        .and_then(|(_, rest)| rest.split_once("</metadata>"))
+        .map(|(inner, _)| inner.to_string())
+        .expect("package document has a metadata element")
+}
+
+#[test]
+fn content_opf_declares_a_supplied_description_once_inside_metadata() {
+    let opf = content_opf(catalog_opf_params(
+        "T",
+        Some("Truyện kể về một chàng trai."),
+    ));
+    let entry = "<dc:description>Truyện kể về một chàng trai.</dc:description>";
+    assert_eq!(opf.matches(entry).count(), 1);
+    assert!(metadata_element(&opf).contains(entry));
+}
+
+#[test]
+fn content_opf_omits_the_description_when_none_is_supplied() {
+    let opf = content_opf(catalog_opf_params("T", None));
+    assert!(!opf.contains("dc:description"));
+}
+
+#[test]
+fn content_opf_escapes_markup_characters_in_the_description() {
+    let opf = content_opf(catalog_opf_params("T", Some("a & b < c > d")));
+    assert!(opf.contains("<dc:description>a &amp; b &lt; c &gt; d</dc:description>"));
+}
+
+/// Identifier the package document gave its collection entry, so a test can
+/// check the refinements point at the entry rather than at a literal id.
+fn collection_id(metadata: &str) -> String {
+    let entry = metadata
+        .lines()
+        .find(|line| line.contains("belongs-to-collection"))
+        .expect("package document declares a collection");
+    let (_, after) = entry
+        .split_once("id=\"")
+        .expect("collection entry has an id");
+    let (id, _) = after.split_once('"').expect("collection id is quoted");
+    id.to_string()
+}
+
+#[test]
+fn content_opf_declares_the_collection_named_after_the_title() {
+    let metadata = metadata_element(&content_opf(catalog_opf_params("Thi Tỷ", None)));
+    let id = collection_id(&metadata);
+    assert!(metadata.contains(&format!(
+        "<meta property=\"belongs-to-collection\" id=\"{id}\">Thi Tỷ</meta>"
+    )));
+    assert!(metadata.contains(&format!(
+        "<meta refines=\"#{id}\" property=\"collection-type\">series</meta>"
+    )));
+    assert!(metadata.contains(&format!(
+        "<meta refines=\"#{id}\" property=\"group-position\">1</meta>"
+    )));
+}
+
+#[test]
+fn content_opf_series_name_follows_the_title_actually_written() {
+    // A user-supplied title reaches `content_opf` as `title`; the series name
+    // must be that title, not one the source reported.
+    let opf = content_opf(catalog_opf_params("Tên Người Dùng Đặt", None));
+    assert!(opf.contains("<dc:title>Tên Người Dùng Đặt</dc:title>"));
+    assert!(opf.contains(">Tên Người Dùng Đặt</meta>"));
+}
+
+#[test]
+fn content_opf_escapes_markup_characters_in_the_series_name() {
+    let metadata = metadata_element(&content_opf(catalog_opf_params("a & b", None)));
+    assert!(metadata.contains(">a &amp; b</meta>"));
+}
+
+#[tokio::test]
+async fn build_epub_carries_the_description_it_was_built_with() {
+    let tmp = tempfile::tempdir().unwrap();
+    let chapter_dir = tmp.path().join("chapters");
+    tokio::fs::create_dir_all(&chapter_dir).await.unwrap();
+    let chapter_html = r#"<!DOCTYPE html>
+<html><body>
+  <h1 class="chapter-title">Chương 1</h1>
+  <div class="chapter-content"><p>Hello.</p></div>
+</body></html>"#;
+    tokio::fs::write(
+        chapter_dir.join("chapter_0001.html"),
+        chapter_html.as_bytes(),
+    )
+    .await
+    .unwrap();
+
+    let output = tmp.path().join("out.epub");
+    build_epub(BuildEpubParams {
+        novel_main_url: "https://example.test/foo/".to_string(),
+        novel_title: "T".to_string(),
+        novel_author: None,
+        description: Some("Truyện kể về một chàng trai.".to_string()),
+        cover_url: None,
+        chapter_dir,
+        output_epub: Some(output.clone()),
+        font_path: None,
+        metadata_override: None,
+    })
+    .await
+    .unwrap();
+
+    let bytes = tokio::fs::read(&output).await.unwrap();
+    let mut archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+    let mut opf_text = String::new();
+    {
+        let mut opf = archive.by_name("EPUB/content.opf").unwrap();
+        opf.read_to_string(&mut opf_text).unwrap();
+    }
+    assert!(
+        opf_text.contains("<dc:description>Truyện kể về một chàng trai.</dc:description>"),
+        "opf: {opf_text}"
     );
 }
