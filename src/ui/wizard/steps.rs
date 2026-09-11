@@ -6,13 +6,14 @@ use crate::source::ChapterRef;
 use crate::ui::PromptOutcome;
 use crate::ui::plan::{CrawlMode, InteractivePlan, SummaryParams, build_summary};
 use crate::ui::screens::{
-    run_confirm, run_loading_screen, run_path_prompt, run_select, run_text_prompt, show_note,
+    run_confirm, run_loading_screen, run_path_prompt, run_select, run_text_area_prompt,
+    run_text_prompt, show_note,
 };
 use crate::ui::widgets::{Select, SelectOption, Validator, expand_tilde};
 
 use super::state::{
-    FontChoice, StepResult, WizardState, WizardStep, step_after_end_chapter, step_after_mode,
-    step_before_if_exists,
+    FontChoice, StepResult, WizardState, WizardStep, step_after_author, step_after_description,
+    step_after_end_chapter, step_after_mode, step_before_if_exists, step_before_start_chapter,
 };
 
 macro_rules! advance_or_back {
@@ -261,23 +262,23 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
             async move {
                 let adapter = crate::source::registry::resolve(&url, allow_any_host)
                     .map_err(|error| error.to_string())?;
-                let novel = adapter
+                // The whole `Novel` is returned rather than a tuple of the
+                // fields wanted: it is already owned and already the shape
+                // the caller assigns from, and every field added to it
+                // otherwise widens this tuple.
+                adapter
                     .fetch_metadata(&url)
                     .await
-                    .map_err(|error| format!("Could not read {url}:\n{error}"))?;
-                Ok::<(String, Option<String>, Option<String>), String>((
-                    novel.title,
-                    novel.author,
-                    novel.cover_url,
-                ))
+                    .map_err(|error| format!("Could not read {url}:\n{error}"))
             },
         )
         .await?;
         match outcome {
-            PromptOutcome::Submitted(Ok((title, author, cover_url))) => {
-                state.novel_title = Some(title);
-                state.novel_author = author;
-                state.novel_cover_url = cover_url;
+            PromptOutcome::Submitted(Ok(novel)) => {
+                state.novel_title = Some(novel.title);
+                state.novel_author = novel.author;
+                state.novel_cover_url = novel.cover_url;
+                state.novel_description = novel.description;
             }
             // Surface the failure; the user can still type the title by hand.
             PromptOutcome::Submitted(Err(message)) => {
@@ -318,11 +319,6 @@ pub(super) async fn step_title(state: &mut WizardState) -> Result<StepResult> {
 /// Author prompt, pre-filled with the author discovered from the web. A blank
 /// value is kept as "no author" rather than re-extracted at build time.
 pub(super) fn step_author(state: &mut WizardState) -> Result<StepResult> {
-    let next = if state.mode == CrawlMode::EpubOnly {
-        WizardStep::FontChoice
-    } else {
-        WizardStep::StartChapter
-    };
     let outcome = run_text_prompt(
         "Author",
         "Author name for the EPUB (leave blank if unknown).",
@@ -337,7 +333,30 @@ pub(super) fn step_author(state: &mut WizardState) -> Result<StepResult> {
         } else {
             Some(trimmed.to_string())
         };
-        Ok(StepResult::Next(next))
+        Ok(StepResult::Next(step_after_author(state.mode)))
+    })
+}
+
+/// Book-description prompt, pre-filled with the blurb the source reported.
+/// Uses the multi-line editor rather than the single-line input: a blurb runs
+/// hundreds of characters, and the user has to be able to read and correct
+/// the whole of it. A blank value is kept as "no description" rather than
+/// re-derived from the novel's page at build time.
+pub(super) fn step_description(state: &mut WizardState) -> Result<StepResult> {
+    let outcome = run_text_area_prompt(
+        "Description",
+        "Blurb written into the EPUB metadata. Leave blank for no description.",
+        state.novel_description.clone().filter(|s| !s.is_empty()),
+        Some("No description."),
+    )?;
+    advance_or_back!(outcome, WizardStep::Author, |value| {
+        let trimmed = value.trim();
+        state.novel_description = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        Ok(StepResult::Next(step_after_description(state.mode)))
     })
 }
 
@@ -359,7 +378,7 @@ pub(super) fn step_start_chapter(state: &mut WizardState) -> Result<StepResult> 
         None,
         Some(validator),
     )?;
-    advance_or_back!(outcome, WizardStep::Author, |value| {
+    advance_or_back!(outcome, step_before_start_chapter(state.mode), |value| {
         state.start_chapter = value.trim().parse().unwrap_or(1);
         Ok(StepResult::Next(WizardStep::EndChapter))
     })
@@ -556,7 +575,7 @@ pub(super) async fn step_font_choice(state: &mut WizardState) -> Result<StepResu
         Select::with_initial(options, &state.font_choice),
     )?;
     let previous = if state.mode == CrawlMode::EpubOnly {
-        WizardStep::Author
+        WizardStep::Description
     } else {
         WizardStep::FastSkip
     };

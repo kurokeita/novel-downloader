@@ -247,7 +247,20 @@ below list each submodule's role.
     `modified` string that `content_opf` emits as the EPUB 3 mandatory
     `<meta property="dcterms:modified">` entry; it is an input rather than a
     clock read so the renderer stays pure and its golden-output tests stay
-    deterministic. `chapter_xhtml` also opens each
+    deterministic. It also carries an optional `description`, emitted as
+    `dc:description` and **omitted entirely when `None`**, the same rule
+    `dc:creator` follows: an empty blurb reads like a missing one to a
+    reader but not to a validator. `content_opf` additionally declares every
+    book a **single-book series** in the EPUB 3 collection form
+    (`belongs-to-collection` refined by `collection-type: series` and
+    `group-position: 1`), so a library groups it under a name instead of
+    leaving the series column empty. The series name is derived from
+    `params.title` rather than carried as its own field, so it cannot
+    disagree with `dc:title`, and the whole thing is one emit site: if a
+    reader turns out to honor only the legacy `calibre:series` /
+    `calibre:series_index` pair, that swap touches nothing else. Both
+    entries were confirmed clean by `epubcheck` under EPUB 3.3 rules and
+    acted on by Calibre and KOReader. `chapter_xhtml` also opens each
     chapter with a **drop cap**: `split_drop_cap` NFC-normalizes the first
     paragraph's leading text (so a decomposed `Ế` becomes one `char` instead
     of a base letter with its marks stranded) and returns `None` unless that
@@ -311,9 +324,45 @@ below list each submodule's role.
 - **`ui/`** — three layers stacked together, organized into
   subdirectories:
   1. `widgets/` — pure state machines, unit tested without a real
-     terminal: `TextInput`, `Select`, `PathInput` (with tab completions
-     via `path_completions` / `longest_common_prefix`), and
+     terminal: `TextInput`, `TextArea`, `Select`, `PathInput` (with tab
+     completions via `path_completions` / `longest_common_prefix`), and
      `DownloadProgress` + `make_tui_progress_callback`.
+     `TextArea` is the multi-line editor the description prompt uses;
+     `TextInput` is deliberately left alone, since giving it a cursor would
+     change behavior on four prompts nobody asked to change. It holds a
+     `char`-index cursor over **NFC-normalized** text, composing on
+     `set_value` and on insert, so one backspace removes one whole
+     Vietnamese letter however the source spelled it, the same reasoning
+     `split_drop_cap` already applies. Stated ceiling: emoji and ZWJ
+     sequences still split, which no novel blurb carries, and is why this
+     indexes by `char` rather than adding `unicode-segmentation`. The
+     widget **stores no layout**. Row movement needs one to interpret a
+     keystroke ("one row up" is meaningless without a wrap width), so it
+     arrives as a `TextAreaLayout { width }` argument to `handle_key`
+     rather than being held and re-synced on every resize. Two pure helpers
+     own the layout itself: `wrap_text` returns visual rows that
+     concatenate back to the value *exactly* (a soft break keeps its space
+     on the row above; an explicit `\n` stays attached to the row it ends,
+     and the draw path strips it), which is what lets
+     `wrapped_cursor_position` map a cursor index into the wrapped view with
+     no bookkeeping. A cursor at the end of a full last row reports the
+     start of the row below, where the next character would actually land,
+     and a value ending in a break gets a trailing empty row so that cursor
+     has one to sit on.
+     Keys: `←/→` by character, `↑/↓` by row with the column preserved and
+     clamped to a shorter row's end. **Arrow clamping reaches the ends of
+     the value:** `↑` on the first row lands on the start and `↓` on the
+     last row on the end, matching a Mac text view. `Home` and `End` also
+     act on the whole value but stay out of the footer, because Mac
+     keyboards need fn or a Karabiner remap to produce them at all. `Enter`
+     submits, per the wizard's shared key contract, so the line break has
+     its own key: `Ctrl+J`, the literal line feed, which arrives as
+     `Char('j')` with Control and so is distinguishable from `Enter`.
+     `Alt+Enter`, `Ctrl+Home` and `Ctrl+End` were measured to arrive on
+     Ghostty and dropped anyway, because the surviving keys already cover
+     the need. Paging was dropped because a blurb wraps to about six rows,
+     so a page key would move nowhere useful. Any other Ctrl or Alt chord
+     is ignored rather than inserting its letter.
      `DownloadProgress` also owns the run's timing: `started_at`,
      `finished_at`, and a `completions` window of recent arrival
      instants. `elapsed(now)` freezes at `finished_at`, so the "Done"
@@ -329,8 +378,20 @@ below list each submodule's role.
   2. `screens/` — synchronous ratatui screens, each opens its own
      `TerminalGuard` (raw mode + alt screen) so the TUI is always torn
      down between prompts:
-     - `prompts.rs` — `run_text_prompt`, `run_path_prompt`,
-       `run_select`, `run_confirm`, `show_note`, `prompt_block_height`.
+     - `prompts.rs` — `run_text_prompt`, `run_text_area_prompt`,
+       `run_path_prompt`, `run_select`, `run_confirm`, `show_note`,
+       `prompt_block_height`. `run_text_area_prompt` takes no validator
+       (its values are free prose, and blank is a meaningful answer) and
+       sizes its block from the wrapped line count. Its visible row count
+       is read back from the split rect rather than from the height the
+       layout asked for, because a short terminal grants less, and the
+       scroll offset follows the cursor by the minimum needed to keep its
+       row on screen; without both, a long blurb in a short terminal hides
+       the cursor, which is the failure the editor exists to prevent.
+       `draw_text_area_prompt` **returns the `TextAreaLayout` it actually
+       rendered with**, and the runner feeds that into the next
+       `handle_key`, so the wrap width has one producer and there is no
+       second copy of the arithmetic to drift.
      - `loading.rs` — `run_loading_screen` for async novel discovery.
      - `download.rs` — `run_download_screen`: the runner is
        `tokio::spawn`ed, a shared `Arc<Mutex<DownloadProgress>>` is
@@ -343,7 +404,17 @@ below list each submodule's role.
      `InteractivePlan`, `SummaryParams`, `build_summary`, and
      `epub_destination_dir`.
      The per-mode step order lives in `state.rs`, not in the prompt
-     renderers: `step_after_mode` decides what follows the mode select, so
+     renderers. `step_after_author` forks after the author prompt: plain
+     `Crawl` builds no EPUB, so it goes straight to `StartChapter`, while
+     `CrawlEpub` and `EpubOnly` get the `Description` prompt first (the
+     same precedent as `EpubOnly` skipping the output root).
+     `step_after_description` then resumes the route that used to follow
+     the author prompt, `FontChoice` for build-only and `StartChapter`
+     otherwise, and `step_before_start_chapter` mirrors the fork for
+     back-navigation so Esc never lands on a prompt that was not shown.
+     Back from the description lands on `Author` in every mode, and a blank
+     submit is stored as "no description" rather than re-derived from the
+     page at build time. `step_after_mode` decides what follows the mode select, so
      **`EpubOnly` never sees the output-root prompt** and goes straight to
      `ChapterDir` (whose back target is therefore `Mode`). That mode derives
      every path from the chapter directory, and the skipped prompt is also
