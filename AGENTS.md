@@ -354,7 +354,9 @@ below list each submodule's role.
      the value:** `↑` on the first row lands on the start and `↓` on the
      last row on the end, matching a Mac text view. `Home` and `End` also
      act on the whole value but stay out of the footer, because Mac
-     keyboards need fn or a Karabiner remap to produce them at all. `Enter`
+     keyboards need fn or a Karabiner remap to produce them at all. `Delete`
+     removes the character after the cursor and stays out of the footer for
+     the same reason. `Enter`
      submits, per the wizard's shared key contract, so the line break has
      its own key: `Ctrl+J`, the literal line feed, which arrives as
      `Char('j')` with Control and so is distinguishable from `Enter`.

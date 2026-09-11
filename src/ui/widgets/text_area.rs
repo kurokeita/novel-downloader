@@ -119,6 +119,17 @@ impl TextArea {
         self.cursor -= 1;
     }
 
+    /// Remove the character at the cursor, or do nothing at the end. The
+    /// cursor stays put: the tail slides in under it.
+    fn delete_forwards(&mut self) {
+        if self.cursor >= self.len() {
+            return;
+        }
+        let start = self.byte_offset(self.cursor);
+        let end = self.byte_offset(self.cursor + 1);
+        self.value.replace_range(start..end, "");
+    }
+
     /// Move the cursor one row up (`-1`) or down (`1`) through the wrapped
     /// layout, holding its column where the target row is long enough and
     /// stopping at that row's end where it is not.
@@ -163,7 +174,8 @@ impl TextArea {
     ///
     /// `Home` and `End` act on the whole value. They are silent aliases for
     /// the arrow clamping in [`move_rows`](Self::move_rows), kept for users
-    /// whose keyboards produce them.
+    /// whose keyboards produce them. `Delete` is likewise silent: it removes
+    /// the character after the cursor, and a Mac keyboard needs fn to send it.
     pub fn handle_key(&mut self, event: KeyEvent, layout: TextAreaLayout) -> TextAreaAction {
         if event.kind == KeyEventKind::Release {
             return TextAreaAction::Continue;
@@ -189,6 +201,10 @@ impl TextArea {
             }
             KeyCode::Backspace => {
                 self.delete_backwards();
+                TextAreaAction::Continue
+            }
+            KeyCode::Delete => {
+                self.delete_forwards();
                 TextAreaAction::Continue
             }
             KeyCode::Left => {

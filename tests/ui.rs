@@ -1002,6 +1002,25 @@ fn text_area_delete_backwards_at_the_start_is_a_no_op() {
 }
 
 #[test]
+fn text_area_delete_forwards_removes_the_character_at_the_cursor() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Delete), WIDE);
+    assert_eq!(area.value(), "ab");
+    assert_eq!(area.cursor(), 2);
+}
+
+#[test]
+fn text_area_delete_forwards_at_the_end_is_a_no_op() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Delete), WIDE);
+    assert_eq!(area.value(), "abc");
+    assert_eq!(area.cursor(), 3);
+}
+
+#[test]
 fn text_area_home_and_end_reach_the_ends_of_the_whole_value() {
     // Whole-value, not row-relative: the value spans rows and has a break,
     // and both keys still land at the very ends.
