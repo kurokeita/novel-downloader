@@ -75,6 +75,10 @@ pub struct InteractivePlan {
     pub novel_author: Option<String>,
     /// Cover image URL reported by the source, passed to the EPUB writer.
     pub novel_cover_url: Option<String>,
+    /// Book description written into the EPUB, or `None` for a book without
+    /// one. Interactively this is what the user left in the description
+    /// prompt; non-interactively it is what the source reported.
+    pub novel_description: Option<String>,
 }
 
 /// Holds the ratatui terminal and ensures the alternate screen + raw mode

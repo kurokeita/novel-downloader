@@ -3,9 +3,10 @@ use novel_downloader::crawler::CrawlStatus;
 use novel_downloader::crawler::ExistingFilePolicy;
 use novel_downloader::ui::{
     CrawlMode, DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select,
-    SelectOption, SummaryParams, TextInput, TextInputAction, build_summary, chapter_summary_lines,
-    epub_destination_dir, expand_tilde, format_hms, gauge_label, longest_common_prefix,
-    path_completions, prompt_block_height,
+    SelectOption, SummaryParams, TextArea, TextAreaAction, TextAreaLayout, TextInput,
+    TextInputAction, build_summary, chapter_summary_lines, epub_destination_dir, expand_tilde,
+    format_hms, gauge_label, longest_common_prefix, path_completions, prompt_block_height,
+    wrap_text, wrapped_cursor_position,
 };
 use std::time::Duration;
 
@@ -952,4 +953,384 @@ fn epub_destination_dir_is_none_when_the_title_is_unknown() {
         ),
         None
     );
+}
+
+// ---- TextArea: the multi-line editor used by the description prompt ----
+
+/// A layout roomy enough that wrapping never interferes with the tests that
+/// care only about editing.
+const WIDE: TextAreaLayout = TextAreaLayout { width: 80 };
+
+/// A layout narrow enough to force wrapping.
+fn narrow(width: usize) -> TextAreaLayout {
+    TextAreaLayout { width }
+}
+
+/// Build a `KeyEvent` carrying the Ctrl modifier.
+fn ctrl(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::CONTROL)
+}
+
+#[test]
+fn text_area_typing_inserts_at_the_cursor_and_advances_it() {
+    let mut area = TextArea::new();
+    area.set_value("ac");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Char('b')), WIDE);
+    assert_eq!(area.value(), "abc");
+    assert_eq!(area.cursor(), 2);
+}
+
+#[test]
+fn text_area_delete_backwards_removes_the_character_before_the_cursor() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Backspace), WIDE);
+    assert_eq!(area.value(), "ac");
+    assert_eq!(area.cursor(), 1);
+}
+
+#[test]
+fn text_area_delete_backwards_at_the_start_is_a_no_op() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Home), WIDE);
+    area.handle_key(key(KeyCode::Backspace), WIDE);
+    assert_eq!(area.value(), "abc");
+    assert_eq!(area.cursor(), 0);
+}
+
+#[test]
+fn text_area_delete_forwards_removes_the_character_at_the_cursor() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Delete), WIDE);
+    assert_eq!(area.value(), "ab");
+    assert_eq!(area.cursor(), 2);
+}
+
+#[test]
+fn text_area_delete_forwards_at_the_end_is_a_no_op() {
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Delete), WIDE);
+    assert_eq!(area.value(), "abc");
+    assert_eq!(area.cursor(), 3);
+}
+
+#[test]
+fn text_area_home_and_end_reach_the_ends_of_the_whole_value() {
+    // Whole-value, not row-relative: the value spans rows and has a break,
+    // and both keys still land at the very ends.
+    let layout = narrow(10);
+    let mut area = TextArea::new();
+    area.set_value("abcde\nxy");
+    area.handle_key(key(KeyCode::Home), layout);
+    assert_eq!(area.cursor(), 0);
+    area.handle_key(key(KeyCode::End), layout);
+    assert_eq!(area.cursor(), 8);
+}
+
+#[test]
+fn text_area_cursor_movement_stops_at_the_boundaries() {
+    let mut area = TextArea::new();
+    area.set_value("ab");
+    area.handle_key(key(KeyCode::Home), WIDE);
+    area.handle_key(key(KeyCode::Left), WIDE);
+    assert_eq!(area.cursor(), 0);
+    assert_eq!(area.value(), "ab");
+    area.handle_key(key(KeyCode::End), WIDE);
+    area.handle_key(key(KeyCode::Right), WIDE);
+    assert_eq!(area.cursor(), 2);
+    assert_eq!(area.value(), "ab");
+}
+
+#[test]
+fn text_area_submit_returns_the_value() {
+    let mut area = TextArea::new();
+    area.set_value("blurb");
+    assert_eq!(
+        area.handle_key(key(KeyCode::Enter), WIDE),
+        TextAreaAction::Submit
+    );
+    assert_eq!(area.value(), "blurb");
+}
+
+#[test]
+fn text_area_back_reports_a_back_navigation() {
+    let mut area = TextArea::new();
+    assert_eq!(
+        area.handle_key(key(KeyCode::Esc), WIDE),
+        TextAreaAction::Cancel
+    );
+}
+
+#[test]
+fn text_area_ctrl_c_quits() {
+    let mut area = TextArea::new();
+    assert_eq!(
+        area.handle_key(ctrl(KeyCode::Char('c')), WIDE),
+        TextAreaAction::Quit
+    );
+}
+
+#[test]
+fn text_area_submit_never_inserts_a_line_break() {
+    let mut area = TextArea::new();
+    area.set_value("ab");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Enter), WIDE);
+    assert_eq!(area.value(), "ab");
+    assert!(!area.value().contains('\n'));
+    assert_eq!(area.cursor(), 1);
+}
+
+#[test]
+fn text_area_ctrl_j_inserts_a_line_break_without_submitting() {
+    let mut area = TextArea::new();
+    area.set_value("ab");
+    let action = area.handle_key(ctrl(KeyCode::Char('j')), WIDE);
+    assert_eq!(action, TextAreaAction::Continue);
+    assert_eq!(area.value(), "ab\n");
+    assert_eq!(area.cursor(), 3);
+}
+
+#[test]
+fn text_area_alt_enter_is_ignored() {
+    // Dropped on purpose: Ctrl+J is the one line-break key.
+    let mut area = TextArea::new();
+    area.set_value("ab");
+    let action = area.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT), WIDE);
+    assert_eq!(action, TextAreaAction::Continue);
+    assert_eq!(area.value(), "ab");
+}
+
+#[test]
+fn text_area_ignores_an_unbound_ctrl_chord_instead_of_inserting_its_letter() {
+    // Ctrl+A arrives as `Char('a')` with Control, the same shape as Ctrl+J.
+    let mut area = TextArea::new();
+    area.set_value("ab");
+    let action = area.handle_key(ctrl(KeyCode::Char('a')), WIDE);
+    assert_eq!(action, TextAreaAction::Continue);
+    assert_eq!(area.value(), "ab");
+    assert_eq!(area.cursor(), 2);
+}
+
+/// `Bế` spelled the decomposed way: a bare `e` followed by the circumflex and
+/// the acute as separate combining marks, which is how some sources ship it.
+const DECOMPOSED: &str = "B\u{0065}\u{0302}\u{0301}";
+/// The same text with the vowel precomposed into one `char`.
+const COMPOSED: &str = "B\u{1EBF}";
+
+#[test]
+fn text_area_composes_a_decomposed_value_on_load() {
+    let mut area = TextArea::new();
+    area.set_value(DECOMPOSED);
+    assert_eq!(area.value(), COMPOSED);
+    assert_eq!(area.cursor(), 2);
+}
+
+#[test]
+fn text_area_delete_backwards_removes_a_whole_decomposed_vowel() {
+    let mut area = TextArea::new();
+    area.set_value(DECOMPOSED);
+    area.handle_key(key(KeyCode::Backspace), WIDE);
+    assert_eq!(area.value(), "B");
+    assert!(
+        !area
+            .value()
+            .chars()
+            .any(|c| c == '\u{0302}' || c == '\u{0301}'),
+        "a combining mark was left stranded: {:?}",
+        area.value()
+    );
+}
+
+#[test]
+fn text_area_composes_a_mark_typed_after_its_base_letter() {
+    let mut area = TextArea::new();
+    area.handle_key(key(KeyCode::Char('e')), WIDE);
+    area.handle_key(key(KeyCode::Char('\u{0301}')), WIDE);
+    assert_eq!(area.value(), "\u{00E9}");
+    assert_eq!(area.cursor(), 1);
+}
+
+#[test]
+fn text_area_moving_down_and_up_keeps_the_column() {
+    let layout = narrow(5);
+    let mut area = TextArea::new();
+    area.set_value("abcdefghij");
+    area.handle_key(key(KeyCode::Home), layout);
+    area.handle_key(key(KeyCode::Right), layout);
+    area.handle_key(key(KeyCode::Right), layout);
+    assert_eq!(area.cursor(), 2);
+    area.handle_key(key(KeyCode::Down), layout);
+    assert_eq!(area.cursor(), 7);
+    area.handle_key(key(KeyCode::Up), layout);
+    assert_eq!(area.cursor(), 2);
+}
+
+#[test]
+fn text_area_moving_onto_a_shorter_row_stops_at_its_end() {
+    let layout = narrow(10);
+    let mut area = TextArea::new();
+    area.set_value("abcde\nxy");
+    area.handle_key(key(KeyCode::Home), layout);
+    for _ in 0..4 {
+        area.handle_key(key(KeyCode::Right), layout);
+    }
+    area.handle_key(key(KeyCode::Down), layout);
+    assert_eq!(area.cursor(), 8);
+}
+
+#[test]
+fn text_area_moving_up_from_the_first_row_reaches_the_start() {
+    let mut area = TextArea::new();
+    area.set_value("abcde");
+    area.handle_key(key(KeyCode::Left), WIDE);
+    area.handle_key(key(KeyCode::Left), WIDE);
+    assert_eq!(area.cursor(), 3);
+    area.handle_key(key(KeyCode::Up), WIDE);
+    assert_eq!(area.cursor(), 0);
+    assert_eq!(area.value(), "abcde");
+}
+
+#[test]
+fn text_area_moving_down_from_the_last_row_reaches_the_end() {
+    let mut area = TextArea::new();
+    area.set_value("abcde");
+    area.handle_key(key(KeyCode::Home), WIDE);
+    area.handle_key(key(KeyCode::Right), WIDE);
+    assert_eq!(area.cursor(), 1);
+    area.handle_key(key(KeyCode::Down), WIDE);
+    assert_eq!(area.cursor(), 5);
+    assert_eq!(area.value(), "abcde");
+}
+
+#[test]
+fn text_area_clamping_holds_at_the_end_of_a_full_last_row() {
+    // The value exactly fills its rows, so the end cursor is reported on a
+    // phantom row below the last one. Down must stay put, Up must still reach
+    // the start.
+    let layout = narrow(3);
+    let mut area = TextArea::new();
+    area.set_value("abc");
+    area.handle_key(key(KeyCode::Down), layout);
+    assert_eq!(area.cursor(), 3);
+    area.handle_key(key(KeyCode::Up), layout);
+    assert_eq!(area.cursor(), 0);
+}
+
+#[test]
+fn wrap_text_keeps_a_short_value_on_one_line() {
+    assert_eq!(wrap_text("abc", 10), vec!["abc".to_string()]);
+}
+
+#[test]
+fn wrap_text_gives_an_empty_value_one_empty_line() {
+    assert_eq!(wrap_text("", 10), vec![String::new()]);
+}
+
+#[test]
+fn wrap_text_breaks_at_a_space_and_keeps_every_character() {
+    let value = "hello world again";
+    let lines = wrap_text(value, 11);
+    assert_eq!(lines.concat(), value, "wrapping dropped characters");
+    assert!(lines.iter().all(|l| l.chars().count() <= 11));
+    assert!(lines.len() > 1);
+    assert!(lines[0].ends_with(' '), "line broke mid-word: {lines:?}");
+}
+
+#[test]
+fn wrap_text_hard_breaks_a_word_longer_than_the_width() {
+    let value = "abcdefgh";
+    let lines = wrap_text(value, 3);
+    assert_eq!(lines, vec!["abc", "def", "gh"]);
+    assert_eq!(lines.concat(), value);
+}
+
+#[test]
+fn wrap_text_starts_a_new_row_at_a_line_break() {
+    let value = "ab\ncd";
+    let lines = wrap_text(value, 10);
+    assert_eq!(lines, vec!["ab\n", "cd"]);
+    assert_eq!(lines.concat(), value);
+}
+
+#[test]
+fn wrap_text_gives_consecutive_breaks_an_empty_row() {
+    let value = "a\n\nb";
+    let lines = wrap_text(value, 10);
+    assert_eq!(lines, vec!["a\n", "\n", "b"]);
+    assert_eq!(lines.concat(), value);
+}
+
+#[test]
+fn wrap_text_leaves_a_row_after_a_trailing_break() {
+    // Without the trailing row the cursor at the end of the value would have
+    // nowhere to sit and would be drawn back on the line above the break.
+    let value = "ab\n";
+    let lines = wrap_text(value, 10);
+    assert_eq!(lines, vec!["ab\n", ""]);
+    assert_eq!(lines.concat(), value);
+}
+
+#[test]
+fn wrap_text_wraps_each_segment_between_breaks() {
+    let value = "hello world\nx";
+    let lines = wrap_text(value, 6);
+    assert_eq!(lines.concat(), value);
+    assert!(
+        lines
+            .iter()
+            .all(|l| l.trim_end_matches('\n').chars().count() <= 6)
+    );
+    assert_eq!(lines.last().unwrap(), "x");
+}
+
+#[test]
+fn wrapped_cursor_position_maps_an_index_on_the_first_line() {
+    let lines = wrap_text("abcdefgh", 3);
+    assert_eq!(wrapped_cursor_position(&lines, 1, 3), (0, 1));
+}
+
+#[test]
+fn wrapped_cursor_position_maps_an_index_on_a_later_line() {
+    let lines = wrap_text("abcdefgh", 3);
+    assert_eq!(wrapped_cursor_position(&lines, 4, 3), (1, 1));
+}
+
+#[test]
+fn wrapped_cursor_position_moves_past_the_end_of_a_full_line() {
+    // The value exactly fills its lines, so an end-of-value cursor has no
+    // column left on the last one and belongs at the start of a fresh row.
+    let lines = wrap_text("abcdef", 3);
+    assert_eq!(lines.len(), 2);
+    assert_eq!(wrapped_cursor_position(&lines, 6, 3), (2, 0));
+}
+
+#[test]
+fn wrapped_cursor_position_sits_after_the_last_character_of_a_short_line() {
+    let lines = wrap_text("abcde", 3);
+    assert_eq!(wrapped_cursor_position(&lines, 5, 3), (1, 2));
+}
+
+#[test]
+fn wrapped_cursor_position_lands_at_the_start_of_the_row_after_a_break() {
+    let lines = wrap_text("ab\ncd", 10);
+    assert_eq!(wrapped_cursor_position(&lines, 3, 10), (1, 0));
+}
+
+#[test]
+fn wrapped_cursor_position_sits_before_a_break_at_the_end_of_its_row() {
+    let lines = wrap_text("ab\ncd", 10);
+    assert_eq!(wrapped_cursor_position(&lines, 2, 10), (0, 2));
+}
+
+#[test]
+fn wrapped_cursor_position_lands_on_the_row_a_trailing_break_opened() {
+    let lines = wrap_text("ab\n", 10);
+    assert_eq!(wrapped_cursor_position(&lines, 3, 10), (1, 0));
 }

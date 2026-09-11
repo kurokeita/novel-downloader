@@ -193,6 +193,11 @@ pub struct ContentOpfParams {
     pub title: String,
     /// Optional author/creator name.
     pub author: Option<String>,
+    /// Optional book description. Omitted from the package document entirely
+    /// when `None`, following the same rule `author` already does: an empty
+    /// blurb reads the same as a missing one to a reader, but not to a
+    /// validator.
+    pub description: Option<String>,
     /// Whether to include the cover image manifest entry.
     pub include_cover: bool,
     /// Cover image extension including the dot (e.g. ".jpg").
@@ -216,6 +221,26 @@ pub fn content_opf(params: ContentOpfParams) -> String {
         .as_ref()
         .map(|a| format!("    <dc:creator>{}</dc:creator>\n", escape_xml(a)))
         .unwrap_or_default();
+    let description_metadata = params
+        .description
+        .as_ref()
+        .map(|d| format!("    <dc:description>{}</dc:description>\n", escape_xml(d)))
+        .unwrap_or_default();
+    // EPUB 3 collection form. The series name is derived from the title
+    // rather than carried as its own field, so the two cannot disagree, and
+    // the position is always 1 because each build is a standalone book. The
+    // refinements resolve by this id; a refinement that does not resolve is
+    // ignored by the reading system. Swapping to the legacy
+    // `calibre:series` / `calibre:series_index` pair is a change to this one
+    // site.
+    const COLLECTION_ID: &str = "series";
+    let collection_metadata = format!(
+        "    <meta property=\"belongs-to-collection\" id=\"{id}\">{name}</meta>\n\
+    <meta refines=\"#{id}\" property=\"collection-type\">series</meta>\n\
+    <meta refines=\"#{id}\" property=\"group-position\">1</meta>\n",
+        id = COLLECTION_ID,
+        name = escape_xml(&params.title),
+    );
     let cover_meta = if params.include_cover {
         "    <meta name=\"cover\" content=\"cover-image\"/>\n".to_string()
     } else {
@@ -270,7 +295,7 @@ pub fn content_opf(params: ContentOpfParams) -> String {
     <dc:identifier id=\"BookId\">{ident}</dc:identifier>\n\
     <dc:title>{title}</dc:title>\n\
     <dc:language>vi</dc:language>\n\
-{author}    <meta property=\"dcterms:modified\">{modified}</meta>\n\
+{author}{description}{collection}    <meta property=\"dcterms:modified\">{modified}</meta>\n\
 {cover_meta}  </metadata>\n\
   <manifest>\n\
     <item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n\
@@ -288,6 +313,8 @@ pub fn content_opf(params: ContentOpfParams) -> String {
         ident = escape_xml(&params.identifier),
         title = escape_xml(&params.title),
         author = author_metadata,
+        description = description_metadata,
+        collection = collection_metadata,
         modified = escape_xml(&params.modified),
         cover_meta = cover_meta,
         cover_manifest = cover_manifest,

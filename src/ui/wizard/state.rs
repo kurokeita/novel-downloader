@@ -15,6 +15,7 @@ pub(super) enum WizardStep {
     Discover,
     Title,
     Author,
+    Description,
     StartChapter,
     EndChapter,
     Workers,
@@ -34,6 +35,37 @@ pub(super) fn step_after_mode(mode: CrawlMode) -> WizardStep {
     match mode {
         CrawlMode::EpubOnly => WizardStep::ChapterDir,
         CrawlMode::Crawl | CrawlMode::CrawlEpub => WizardStep::OutputRoot,
+    }
+}
+
+/// Step that follows the author prompt. Only the two modes that build an EPUB
+/// see the description prompt: plain `Crawl` writes no package document, so a
+/// blurb it collected would be discarded, the same reasoning that keeps
+/// `EpubOnly` off the output-root prompt.
+pub(super) fn step_after_author(mode: CrawlMode) -> WizardStep {
+    match mode {
+        CrawlMode::Crawl => WizardStep::StartChapter,
+        CrawlMode::CrawlEpub | CrawlMode::EpubOnly => WizardStep::Description,
+    }
+}
+
+/// Step that follows the description prompt: the one that used to follow the
+/// author prompt for that mode, so inserting the description reorders nothing
+/// else.
+pub(super) fn step_after_description(mode: CrawlMode) -> WizardStep {
+    match mode {
+        CrawlMode::EpubOnly => WizardStep::FontChoice,
+        CrawlMode::Crawl | CrawlMode::CrawlEpub => WizardStep::StartChapter,
+    }
+}
+
+/// Where back-navigation from the start-chapter prompt lands. It has to mirror
+/// [`step_after_author`], or going back would land on a prompt that was never
+/// shown.
+pub(super) fn step_before_start_chapter(mode: CrawlMode) -> WizardStep {
+    match mode {
+        CrawlMode::Crawl => WizardStep::Author,
+        CrawlMode::CrawlEpub | CrawlMode::EpubOnly => WizardStep::Description,
     }
 }
 
@@ -187,6 +219,54 @@ mod tests {
     fn step_before_if_exists_mirrors_the_forward_route() {
         assert_eq!(step_before_if_exists(true), WizardStep::EndChapter);
         assert_eq!(step_before_if_exists(false), WizardStep::Delay);
+    }
+
+    #[test]
+    fn step_after_author_skips_the_description_for_plain_crawl() {
+        assert_eq!(
+            step_after_author(CrawlMode::Crawl),
+            WizardStep::StartChapter
+        );
+    }
+
+    #[test]
+    fn step_after_author_asks_for_the_description_in_the_epub_modes() {
+        assert_eq!(
+            step_after_author(CrawlMode::CrawlEpub),
+            WizardStep::Description
+        );
+        assert_eq!(
+            step_after_author(CrawlMode::EpubOnly),
+            WizardStep::Description
+        );
+    }
+
+    #[test]
+    fn step_after_description_leads_to_the_font_prompt_for_build_only() {
+        assert_eq!(
+            step_after_description(CrawlMode::EpubOnly),
+            WizardStep::FontChoice
+        );
+    }
+
+    #[test]
+    fn step_after_description_leads_to_the_start_chapter_for_crawl_epub() {
+        assert_eq!(
+            step_after_description(CrawlMode::CrawlEpub),
+            WizardStep::StartChapter
+        );
+    }
+
+    #[test]
+    fn step_before_start_chapter_mirrors_the_forward_route() {
+        assert_eq!(
+            step_before_start_chapter(CrawlMode::Crawl),
+            WizardStep::Author
+        );
+        assert_eq!(
+            step_before_start_chapter(CrawlMode::CrawlEpub),
+            WizardStep::Description
+        );
     }
 
     #[test]

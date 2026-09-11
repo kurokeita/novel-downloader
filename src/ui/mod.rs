@@ -23,12 +23,13 @@ pub use plan::{
 };
 pub use screens::{
     prompt_block_height, run_confirm, run_download_screen, run_loading_screen, run_path_prompt,
-    run_select, run_text_prompt, show_note,
+    run_select, run_text_area_prompt, run_text_prompt, show_note,
 };
 pub use widgets::{
     DownloadLogEntry, DownloadProgress, PathInput, PathInputAction, Select, SelectAction,
-    SelectOption, TextInput, TextInputAction, Validator, expand_tilde, format_hms, gauge_label,
-    longest_common_prefix, make_tui_progress_callback, path_completions,
+    SelectOption, TextArea, TextAreaAction, TextAreaLayout, TextInput, TextInputAction, Validator,
+    expand_tilde, format_hms, gauge_label, longest_common_prefix, make_tui_progress_callback,
+    path_completions, wrap_text, wrapped_cursor_position,
 };
 pub use wizard::run_interactive_flow;
 
